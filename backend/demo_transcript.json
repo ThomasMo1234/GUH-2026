@@ -1,0 +1,17 @@
+[
+  {"t_start": 0,   "t_end": 12,  "text": "Okay everyone, welcome back. Today we're looking at hash tables, which are one of the most useful data structures you'll ever use."},
+  {"t_start": 12,  "t_end": 24,  "text": "The big idea is simple. We want to look things up by a key, like a username, in constant time, without scanning through everything."},
+  {"t_start": 24,  "t_end": 36,  "text": "So we keep an array, and we use a hash function to turn the key into a number, which tells us which slot of the array to use."},
+  {"t_start": 36,  "t_end": 48,  "text": "For example, the hash of the string alice might come out as 7, so alice gets stored in slot 7. Looking her up later means hashing again and going straight to slot 7."},
+  {"t_start": 48,  "t_end": 60,  "text": "That's why we say lookups are O of 1 on average. We never loop over the whole array, we just compute the slot and jump to it."},
+  {"t_start": 60,  "t_end": 72,  "text": "Now here's the catch. Two different keys can hash to the same slot. We call that a collision, and it will happen, because there are far more possible keys than slots."},
+  {"t_start": 72,  "t_end": 84,  "text": "One standard fix is chaining. Each slot holds a linked list, so colliding keys just get appended to the list in that slot, and lookups walk that short list."},
+  {"t_start": 84,  "t_end": 96,  "text": "The other family is open addressing, where on a collision we probe for the next free slot using linear probing, quadratic probing, or double hashing, and lookups follow the same probe sequence."},
+  {"t_start": 96,  "t_end": 108, "text": "And what controls how bad collisions get is the load factor, alpha, which is the number of items n divided by the number of slots m. Keep alpha under about 0.7 and everything stays fast."},
+  {"t_start": 108, "t_end": 120, "text": "When alpha crosses the threshold we resize, usually doubling the array, and rehash every key into the new array, because the slot depends on the array size."},
+  {"t_start": 120, "t_end": 132, "text": "That rehash costs O of n, but because we double each time, it's spread out so insertion is amortised O of 1. We'll prove that properly on Thursday."},
+  {"t_start": 132, "t_end": 144, "text": "In the worst case, if every key lands in the same slot, a hash table degrades to O of n lookups, which is why a good hash function matters."},
+  {"t_start": 144, "t_end": 156, "text": "A good hash function is deterministic, spreads keys uniformly, and is fast. Python's dict and Java's HashMap both do this under the hood."},
+  {"t_start": 156, "t_end": 168, "text": "So to recap: hash the key, jump to the slot, handle collisions by chaining or probing, and resize when the load factor gets too high."},
+  {"t_start": 168, "t_end": 180, "text": "For the lab this week you'll implement a hash table with chaining from scratch. Start with the hash function and the insert method. Questions before we move on?"}
+]
