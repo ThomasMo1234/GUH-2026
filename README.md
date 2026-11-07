@@ -1,7 +1,7 @@
 # Signal
 
 Students tap **"I'm lost"** to bookmark a confusing moment. Lecturers see a live heatmap of where the room got lost.
-Quizzes are generated from the live transcript, and every student gets a personal catch-up digest at the end.
+Students can quiz themselves any time with a question generated from the live transcript, and every student gets a personal catch-up digest at the end.
 
 Stack: FastAPI + WebSockets · React + Vite + TypeScript · ElevenLabs Scribe v2 Realtime (live transcription) · Claude (quiz, explainer, lecturer insights).
 
@@ -65,7 +65,7 @@ Copy the `https://....trycloudflare.com` URL it prints and **paste it into the b
 1. Lecturer page: **Run demo** (real time). A bundled lecture replays and *simulated* students fill the heatmap (the UI labels them as simulated). The clock in the header shows lecture time.
 2. Judges scan the QR code and tap **I'm lost** at moments that confuse them. Their taps appear on the heatmap in real time.
 3. Click a bar on the heatmap, then **What should I re-explain?**. An agent reads every bookmark in that 30-second window plus the transcript and says what to re-teach.
-4. Press **Quiz now** around 1:50. Phones show a 25-second question and the lecturer sees live results.
+4. On a phone, tap **Test myself** (the button beside "I'm lost") for a personal quiz question from the last few minutes. The lecturer page shows anonymous class results under **Student self-checks**.
 5. Press **End lecture**, then **Analyse top moments**. On a phone, open **my catch-up notes**.
 
 For real use: **Start lecture + mic** streams the lecturer's microphone to Scribe. Test this in the venue beforehand and keep the demo replay as your fallback.
@@ -96,8 +96,8 @@ backend/
   agents.py               quiz / explainer / insight / moment-summary agents + mock mode
   demo_transcript.json    the bundled demo lecture
 frontend/src/
-  pages/Lecturer.tsx      dashboard: clock, mic, heatmap, moment summary, quiz, insights, QR
-  pages/Student.tsx       "I'm lost" button + quiz overlay
+  pages/Lecturer.tsx      dashboard: clock, mic, heatmap, moment summary, student self-checks, insights, QR
+  pages/Student.tsx       "I'm lost" button, "Test myself" button + quiz overlay
   pages/Digest.tsx        personal catch-up notes
   components/Heatmap.tsx  the 30-second heatmap bars
   api.ts  hooks.ts        types, fetch helpers, live-refresh hook

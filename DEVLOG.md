@@ -10,7 +10,7 @@
 5. Keep it simple: in-memory state, no database, no accounts, one lecture per code. Hackathon scope.
 
 ## What this is
-Students tap **"I'm lost"** to bookmark a confusing moment in a lecture. The lecturer sees a live heatmap of where the room got lost. The lecturer can fire a quiz generated from the live transcript. After the lecture each student gets a personal catch-up page, and the lecturer gets AI-suggested fixes for the most-bookmarked moments.
+Students tap **"I'm lost"** to bookmark a confusing moment in a lecture. The lecturer sees a live heatmap of where the room got lost. Students can quiz themselves at any time ("Test myself" button), with a question generated from the live transcript; the lecturer sees anonymous class results. After the lecture each student gets a personal catch-up page, and the lecturer gets AI-suggested fixes for the most-bookmarked moments.
 
 ## Hackathon context
 - Event: GreatUniHack 2026 (7 Nov 2026). Team of 5. About 3.5 hours to build.
@@ -30,14 +30,14 @@ Students tap **"I'm lost"** to bookmark a confusing moment in a lecture. The lec
 ## Design decisions (and why)
 - **Bookmark, don't recap live.** The explanation arrives after the lecture so students never read while the lecturer moves on.
 - **Transcript text only, no raw audio stored.** Simpler and a stronger privacy story.
-- **Quiz answers never go to students until they answer.** `/public` omits `correct_index` and `explanation`.
+- **Quizzes are student-triggered only (no lecturer quiz button).** `POST /quiz/self` writes one personal question for that student; the correct answer is only returned by `POST /quiz/self/answer`. A student can only answer their own quiz, first answer wins, 3 s cooldown between requests, and the agent is told which questions that student already saw.
 - **True bookmark counts come from the server, never the model.** Insights overwrite `students_lost` with real counts.
 - **Simulated students are always labelled** in the lecturer UI (`simulated_total` chip). Don't remove that: the demo must not pass fake data off as real.
 - Double-tap protection: a student's bookmarks within 15 s of their previous one are ignored.
 
 ## Current state (update me)
 TESTED (sandbox, Nov 2026):
-- Backend end to end with `MOCK_AI=1`: create lecture, demo replay (including running the demo twice in a row: no duplicate lines), bookmark, quiz, answer, state/heatmap buckets, digest, insights, and the new `POST /api/lectures/{id}/moments/summary` (normal call, empty window -> 400, bad range -> 400).
+- Backend end to end with `MOCK_AI=1`: create lecture, demo replay (including running the demo twice in a row: no duplicate lines), bookmark, student self-quiz and answer, state/heatmap buckets, digest, insights, and the new `POST /api/lectures/{id}/moments/summary` (normal call, empty window -> 400, bad range -> 400).
 - Frontend `npm run build` (TypeScript strict type-check passes) and the Vite dev server proxying `/api` to the backend, including the new endpoint.
 
 UNTESTED:
@@ -48,11 +48,11 @@ UNTESTED:
 
 ## Known gaps and risks
 - State is in memory: restarting the backend loses the lecture.
-- Quiz needs transcript text first; "Quiz now" returns an error if nothing has been said yet.
+- "Test myself" needs transcript text first; it shows an error toast if nothing has been said yet. It also works after the lecture ends (uses the last 3 minutes).
 - Heatmap counts unique students per 30 s bucket; very long lectures make many thin bars.
 - Single lecturer per lecture; no auth. Anyone with the code can join.
 - Demo replay at real time takes 3 minutes; use the 6x option for dry runs. The demo does NOT end the lecture by itself (so students can still bookmark and take a quiz at the end); press End lecture.
-- Starting a lecture or a demo now wipes the previous transcript, bookmarks, quizzes and summaries for that code.
+- Starting a lecture or a demo now wipes the previous transcript, bookmarks, self-quizzes and summaries for that code.
 - Moment summary is cached per (window, number of students); it refreshes when more students bookmark that window.
 
 ## Next tasks (priority order)
@@ -92,3 +92,12 @@ UNTESTED:
 - **README:** added first-time setup for WSL2/Ubuntu (python3, venv, nvm, cloudflared) and a troubleshooting table.
 - Tested: see "Current state". NOT tested: real API keys, real mic, a real browser, phones.
 - Next: tasks 1 and 2 above.
+
+
+### 2026-11-07, Claude (student-only quizzes)
+- Removed the lecturer's "Quiz now" button and the lecturer-fired shared quiz entirely (backend routes `POST /quiz` and `POST /answers`, `quizzes` in lecturer state, `active_quiz` in student state, the student quiz overlay with the 25 s timer).
+- New student button **Test myself**, beside the big "I'm lost" button on the student page (also on the "Lecture finished" card). It opens a personal quiz overlay: question, 4 options, then right/wrong plus explanation, with "Another question" and "Back to the lecture".
+- Backend: `POST /api/lectures/{id}/quiz/self` (body `{student_id}`; returns `{id, question, options, concept}` with no answer) and `POST /api/lectures/{id}/quiz/self/answer` (body `{student_id, quiz_id, choice}`; returns `{correct, correct_index, explanation}`). `make_quiz(transcript, seen)` in `agents.py` now takes the questions that student already got so it doesn't repeat them; the mock cycles through 3 questions.
+- Lecturer page: the "Live quiz" card is now **Student self-checks**: anonymous % correct plus the concepts students miss most. Backend field `self_checks` in the lecturer state: `{requested, answered, pct_correct, missed[{concept, answered, missed}]}`.
+- Tested: backend with `MOCK_AI=1` (before the lecture starts -> 409, answer not leaked, 3 s cooldown -> 429, another student can't answer your quiz -> 404, second answer ignored, a second question differs, class stats correct, old quiz routes -> 404, bookmark/digest/insights/moment-summary still work, works after End). Frontend `npm run build` passes. NOT tested: a real browser or phone (so the button layout beside "I'm lost" on a small screen is unchecked), real Claude calls.
+- Next: same as before (real keys, phones). Also eyeball the "Test myself" button width on a small phone.

@@ -1,56 +1,58 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { fmt, post, PublicState, studentId } from "../api";
+import { fmt, post, PublicState, SelfQuiz, SelfQuizResult, studentId } from "../api";
 import { useLive } from "../hooks";
-
-type Result = { correct: boolean; correct_index: number; explanation: string; choice: number; question: string; options: string[] };
 
 export default function Student() {
   const { id = "" } = useParams();
   const sid = studentId();
   const { data: s, error } = useLive<PublicState>(`/api/lectures/${id}/public?student_id=${sid}`, id, 2000);
   const [toast, setToast] = useState("");
-  const [results, setResults] = useState<Record<string, Result>>({});
-  const [dismissed, setDismissed] = useState<string[]>([]);
-  const [deadline, setDeadline] = useState<{ id: string; at: number } | null>(null);
-  const [now, setNow] = useState(Date.now());
 
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 250);
-    return () => clearInterval(t);
-  }, []);
+  // "Test myself": a personal quiz that only this student sees
+  const [open, setOpen] = useState(false); // is the quiz overlay on screen?
+  const [quiz, setQuiz] = useState<SelfQuiz | null>(null); // null while the question is being written
+  const [choice, setChoice] = useState<number | null>(null);
+  const [result, setResult] = useState<SelfQuizResult | null>(null);
 
-  const q = s?.active_quiz ?? null;
-  // The phone's clock may differ from the server's, so we only trust "seconds left" and count down locally.
-  useEffect(() => {
-    if (q && deadline?.id !== q.id) setDeadline({ id: q.id, at: Date.now() + q.seconds_left * 1000 });
-  }, [q?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const flash = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(""), 3500);
+  };
 
   const bookmark = async () => {
     try {
       const r = await post<{ t: number; duplicate: boolean }>(`/api/lectures/${id}/bookmarks`, { student_id: sid });
       navigator.vibrate?.(30);
-      setToast(r.duplicate ? `Already saved at ${fmt(r.t)}` : `Saved at ${fmt(r.t)}. We'll explain it after the lecture.`);
+      flash(r.duplicate ? `Already saved at ${fmt(r.t)}` : `Saved at ${fmt(r.t)}. We'll explain it after the lecture.`);
     } catch (e) {
-      setToast((e as Error).message);
+      flash((e as Error).message);
     }
-    setTimeout(() => setToast(""), 3500);
   };
 
-  const answer = async (choice: number) => {
-    if (!q) return;
-    const r = await post<{ correct: boolean; correct_index: number; explanation: string }>(`/api/lectures/${id}/answers`, {
-      student_id: sid,
-      quiz_id: q.id,
-      choice,
-    });
-    setResults((prev) => ({ ...prev, [q.id]: { ...r, choice, question: q.question, options: q.options } }));
+  const testMe = async () => {
+    setOpen(true);
+    setQuiz(null);
+    setChoice(null);
+    setResult(null);
+    try {
+      setQuiz(await post<SelfQuiz>(`/api/lectures/${id}/quiz/self`, { student_id: sid }));
+    } catch (e) {
+      setOpen(false);
+      flash((e as Error).message);
+    }
   };
 
-  // which quiz (if any) should be on screen?
-  const answeredPending = Object.entries(results).find(([qid]) => !dismissed.includes(qid));
-  const showQuiz = q && !results[q.id];
-  const secondsLeft = deadline && q && deadline.id === q.id ? Math.max(0, (deadline.at - now) / 1000) : 0;
+  const answer = async (i: number) => {
+    if (!quiz || result) return;
+    setChoice(i);
+    try {
+      setResult(await post<SelfQuizResult>(`/api/lectures/${id}/quiz/self/answer`, { student_id: sid, quiz_id: quiz.id, choice: i }));
+    } catch (e) {
+      setChoice(null);
+      flash((e as Error).message);
+    }
+  };
 
   if (error && !s) return <div className="wrap narrow"><div className="err">Could not reach the lecture: {error}</div></div>;
 
@@ -71,51 +73,68 @@ export default function Student() {
           <div className="card">
             <h2>Lecture finished</h2>
             <p className="sub">Your bookmarked moments are explained here.</p>
-            <Link to={`/digest/${id}`} className="btn primary" style={{ textDecoration: "none", display: "inline-block" }}>
-              Open my catch-up notes
-            </Link>
+            <div className="row">
+              <Link to={`/digest/${id}`} className="btn primary" style={{ textDecoration: "none", display: "inline-block" }}>
+                Open my catch-up notes
+              </Link>
+              <button className="btn" onClick={testMe}>Test myself</button>
+            </div>
+            <div className="toast" style={{ marginTop: 10 }}>{toast}</div>
           </div>
         )}
         {status !== "ended" && (
           <>
-            <button className="lost" onClick={bookmark} disabled={status !== "live"}>
-              I'm lost
-              <small>tap to bookmark this moment</small>
-            </button>
+            <div className="pair">
+              <button className="lost" onClick={bookmark} disabled={status !== "live"}>
+                I'm lost
+                <small>tap to bookmark</small>
+              </button>
+              <button className="side" onClick={testMe} disabled={status !== "live"}>
+                Test myself
+                <small>quick quiz</small>
+              </button>
+            </div>
             <div className="toast">{toast}</div>
             <p className="sub" style={{ maxWidth: 320 }}>
-              Keep listening. Just tap and carry on. We save this moment and explain it after the lecture.
+              Lost? Tap the big button and carry on listening. We'll explain it after the lecture. Want to check you've got it? Tap "Test myself" any time.
             </p>
           </>
         )}
       </div>
 
-      {showQuiz && q && (
+      {open && (
         <div className="overlay">
-          <div className="timer"><i style={{ width: `${Math.min(100, (secondsLeft / 25) * 100)}%` }} /></div>
-          <div className="q">{q.question}</div>
-          {q.options.map((o, i) => (
-            <button key={i} className="choice" onClick={() => answer(i)}>{o}</button>
-          ))}
-        </div>
-      )}
-
-      {!showQuiz && answeredPending && (
-        <div className="overlay">
-          {(() => {
-            const [qid, r] = answeredPending;
-            return (
-              <>
-                <div className="q">{r.correct ? "Correct" : "Not quite"}</div>
-                <p className="sub">{r.question}</p>
-                {r.options.map((o, i) => (
-                  <div key={i} className={"choice" + (i === r.correct_index ? " right" : i === r.choice ? " wrong" : "")}>{o}</div>
-                ))}
-                <p style={{ margin: "16px 0", lineHeight: 1.5 }}>{r.explanation}</p>
-                <button className="btn primary" onClick={() => setDismissed((d) => [...d, qid])}>Back to the lecture</button>
-              </>
-            );
-          })()}
+          {!quiz && (
+            <>
+              <p className="sub">Writing a question from the last few minutes…</p>
+              <div className="skeleton" />
+            </>
+          )}
+          {quiz && (
+            <>
+              <span className="chip">{quiz.concept || "Quick check"}</span>
+              <div className="q">{quiz.question}</div>
+              {quiz.options.map((o, i) => {
+                const cls = result ? (i === result.correct_index ? " right" : i === choice ? " wrong" : "") : "";
+                return (
+                  <button key={i} className={"choice" + cls} onClick={() => answer(i)} disabled={!!result}>
+                    {o}
+                  </button>
+                );
+              })}
+              {result && (
+                <>
+                  <p className="verdict">{result.correct ? "Correct" : "Not quite"}</p>
+                  <p style={{ margin: "0 0 16px", lineHeight: 1.5 }}>{result.explanation}</p>
+                </>
+              )}
+              <div className="row" style={{ marginTop: 16 }}>
+                {result && <button className="btn primary" onClick={testMe}>Another question</button>}
+                <button className="btn" onClick={() => setOpen(false)}>{result ? "Back to the lecture" : "Close"}</button>
+              </div>
+              {!result && <p className="sub" style={{ marginTop: 12 }}>The lecture keeps going while you answer.</p>}
+            </>
+          )}
         </div>
       )}
     </div>

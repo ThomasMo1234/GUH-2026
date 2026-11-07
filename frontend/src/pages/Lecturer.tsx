@@ -98,7 +98,6 @@ export default function Lecturer() {
       await post(`/api/lectures/${id}/demo`, { speed, seed: true });
     });
 
-  const quizNow = () => run("quiz", () => post(`/api/lectures/${id}/quiz`));
   const getInsights = () => run("insights", async () => setInsights(await api<Insights>(`/api/lectures/${id}/insights`)));
 
   const summarise = async (start: number, end: number) => {
@@ -122,7 +121,7 @@ export default function Lecturer() {
   const clock = status === "live" ? sync.base + ((tick - sync.at) / 1000) * (s?.speed ?? 1) : s?.elapsed ?? 0;
   const bucket = sel !== null && s ? s.buckets[sel] : null;
   const moment = bucket ? summaries[bucket.start] : undefined;
-  const quiz = s && s.quizzes.length ? s.quizzes[s.quizzes.length - 1] : null;
+  const checks = s?.self_checks;
 
   return (
     <div className="wrap">
@@ -138,9 +137,6 @@ export default function Lecturer() {
         <div className="row">
           <button className="btn primary" onClick={startLecture} disabled={status === "live" || !!busy}>
             Start lecture + mic
-          </button>
-          <button className="btn" onClick={quizNow} disabled={status !== "live" || !!busy}>
-            {busy === "quiz" ? "Writing quiz…" : "Quiz now"}
           </button>
           <button className="btn danger" onClick={endLecture} disabled={status !== "live" || !!busy}>
             End lecture
@@ -199,34 +195,33 @@ export default function Lecturer() {
 
           <div className="card">
             <div className="row">
-              <h2>Live quiz</h2>
+              <h2>Student self-checks</h2>
               <div className="spacer" />
-              {s?.quizzes.map((q, i) => (
-                <span key={q.id} className="chip">
-                  Q{i + 1}: {q.pct_correct === null ? "…" : `${q.pct_correct}%`}
-                </span>
-              ))}
+              <span className="chip">{checks?.answered ?? 0} answered</span>
             </div>
-            {!quiz && <p className="sub">Press "Quiz now" to generate a question from the last few minutes of lecture. Students have 25 seconds.</p>}
-            {quiz && (
+            <p className="sub">Students tap "Test myself" on their phone whenever they like. Results are anonymous.</p>
+            {!checks || checks.answered === 0 ? (
+              <p className="sub" style={{ margin: 0 }}>No self-checks yet.</p>
+            ) : (
               <>
-                <p className="sub">
-                  {quiz.concept} · {quiz.total} answered {quiz.open && "· open"}
-                </p>
-                <div style={{ fontWeight: 700, marginBottom: 4 }}>{quiz.question}</div>
-                {quiz.options.map((o, i) => (
-                  <div key={i} className={"opt" + (i === quiz.correct_index ? " right" : "")}>
-                    <div className="meter" style={{ width: `${quiz.total ? (100 * quiz.counts[i]) / quiz.total : 0}%` }} />
-                    <span>
-                      <em style={{ fontStyle: "normal" }}>{o}</em>
-                      <b>{quiz.counts[i]}</b>
-                    </span>
-                  </div>
-                ))}
-                {quiz.pct_correct !== null && (
-                  <div style={{ marginTop: 14 }}>
-                    <span className="big">{quiz.pct_correct}%</span> <span className="sub">got it right</span>
-                  </div>
+                <div>
+                  <span className="big">{checks.pct_correct}%</span> <span className="sub">answered correctly</span>
+                </div>
+                {checks.missed.length > 0 && (
+                  <>
+                    <p className="sub" style={{ margin: "12px 0 4px" }}>Concepts students are getting wrong</p>
+                    {checks.missed.map((m) => (
+                      <div className="opt" key={m.concept}>
+                        <div className="meter" style={{ width: `${(100 * m.missed) / Math.max(1, m.answered)}%` }} />
+                        <span>
+                          <em style={{ fontStyle: "normal" }}>{m.concept}</em>
+                          <b>
+                            {m.missed} of {m.answered} missed
+                          </b>
+                        </span>
+                      </div>
+                    ))}
+                  </>
                 )}
               </>
             )}

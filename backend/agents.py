@@ -53,21 +53,50 @@ JSON shape:
  "explanation": str (1-2 sentences on why the answer is right), "concept": str (2-4 words)}"""
 
 
-async def make_quiz(transcript: str) -> dict:
+MOCK_QUIZZES = [
+    {
+        "question": "Why do hash tables resize and rehash when the load factor gets too high?",
+        "options": [
+            "To keep chains/probe sequences short so lookups stay fast",
+            "Because the hash function stops working on full arrays",
+            "To sort the keys into alphabetical order",
+            "To free memory that deleted keys were using",
+        ],
+        "correct_index": 0,
+        "explanation": "A high load factor means more collisions, so resizing spreads keys out and keeps lookups close to O(1).",
+        "concept": "load factor",
+    },
+    {
+        "question": "Two different keys hash to the same slot. What is this called?",
+        "options": ["A collision", "A rehash", "An overflow bug", "A load spike"],
+        "correct_index": 0,
+        "explanation": "There are far more possible keys than slots, so different keys sometimes land in the same slot. That is a collision.",
+        "concept": "collisions",
+    },
+    {
+        "question": "How does chaining handle two keys that land in the same slot?",
+        "options": [
+            "It keeps a list in that slot and appends both keys",
+            "It moves the second key to the next free slot",
+            "It deletes the older key",
+            "It doubles the array immediately",
+        ],
+        "correct_index": 0,
+        "explanation": "With chaining each slot holds a small list, so colliding keys are simply stored together and lookups walk that short list.",
+        "concept": "chaining",
+    },
+]
+
+
+async def make_quiz(transcript: str, seen: list[str] | None = None) -> dict:
+    """One question for ONE student. `seen` = questions they already got, so we don't repeat them."""
+    seen = seen or []
     if MOCK:
-        return {
-            "question": "Why do hash tables resize and rehash when the load factor gets too high?",
-            "options": [
-                "To keep chains/probe sequences short so lookups stay fast",
-                "Because the hash function stops working on full arrays",
-                "To sort the keys into alphabetical order",
-                "To free memory that deleted keys were using",
-            ],
-            "correct_index": 0,
-            "explanation": "A high load factor means more collisions, so resizing spreads keys out and keeps lookups close to O(1).",
-            "concept": "load factor",
-        }
-    q = await _ask_json(FAST, QUIZ_SYSTEM, f"Transcript of the last few minutes:\n\n{transcript}", 500)
+        return MOCK_QUIZZES[len(seen) % len(MOCK_QUIZZES)]
+    user = f"Transcript of the last few minutes:\n\n{transcript}"
+    if seen:
+        user += "\n\nThis student has ALREADY been asked these. Do not repeat or lightly reword them, pick a different idea:\n" + "\n".join(f"- {q}" for q in seen)
+    q = await _ask_json(FAST, QUIZ_SYSTEM, user, 500)
     opts = q.get("options")
     ci = q.get("correct_index")
     if not (isinstance(opts, list) and len(opts) == 4 and isinstance(ci, int) and 0 <= ci <= 3):

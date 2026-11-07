@@ -1,17 +1,16 @@
 export type Bucket = { start: number; end: number; count: number; text: string };
 
-export type QuizStat = {
-  id: string;
-  created_t: number;
-  question: string;
-  options: string[];
-  correct_index: number;
-  concept: string;
-  counts: number[];
-  total: number;
+/** Anonymous class-wide summary of the students' own "Test myself" quizzes. */
+export type SelfChecks = {
+  requested: number;
+  answered: number;
   pct_correct: number | null;
-  open: boolean;
+  missed: { concept: string; answered: number; missed: number }[];
 };
+
+/** A personal quiz question. The correct answer only arrives after the student answers. */
+export type SelfQuiz = { id: string; question: string; options: string[]; concept: string };
+export type SelfQuizResult = { correct: boolean; correct_index: number; explanation: string };
 
 export type LecturerState = {
   id: string;
@@ -22,14 +21,13 @@ export type LecturerState = {
   buckets: Bucket[];
   bookmarks_total: number;
   simulated_total: number;
-  quizzes: QuizStat[];
+  self_checks: SelfChecks;
 };
 
 export type PublicState = {
   id: string;
   status: "waiting" | "live" | "ended";
   elapsed: number;
-  active_quiz: null | { id: string; question: string; options: string[]; seconds_left: number };
   my_bookmarks: number;
 };
 

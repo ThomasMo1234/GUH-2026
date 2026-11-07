@@ -25,7 +25,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 BUCKET = 30          # heatmap bucket size in seconds
 EXPLAIN_WINDOW = 45  # seconds either side of a bookmark sent to the explainer
 QUIZ_LOOKBACK = 180  # seconds of transcript the quiz agent sees
-QUIZ_SECONDS = 25    # how long students have to answer
+SELF_QUIZ_COOLDOWN = 3  # seconds a student must wait between "test myself" requests
 DEMO = json.loads((Path(__file__).parent / "demo_transcript.json").read_text())
 
 
@@ -39,7 +39,8 @@ class Lecture:
         self.speed = 1.0         # >1 only for fast demo replays
         self.segments: list[dict] = []   # {t_start, t_end, text}
         self.bookmarks: list[dict] = []  # {student_id, t, simulated, explanation|None}
-        self.quizzes: list[dict] = []    # see create_quiz
+        self.self_quizzes: dict[str, dict] = {}  # quiz_id -> personal quiz (see self_quiz); only its student sees it
+        self.last_self_quiz: dict[str, float] = {}  # student_id -> wall-clock time of their last request
         self.insights: tuple[int, dict] | None = None  # (bookmark_count_when_made, result)
         self.sockets: set[WebSocket] = set()
         self.explain_lock = asyncio.Lock()
@@ -51,7 +52,8 @@ class Lecture:
         self.run_id += 1
         self.segments.clear()
         self.bookmarks.clear()
-        self.quizzes.clear()
+        self.self_quizzes.clear()
+        self.last_self_quiz.clear()
         self.insights = None
         self.moments.clear()
         self.ended_elapsed = 0.0
@@ -131,7 +133,11 @@ class BookmarkIn(BaseModel):
     student_id: str
 
 
-class AnswerIn(BaseModel):
+class SelfQuizIn(BaseModel):
+    student_id: str
+
+
+class SelfAnswerIn(BaseModel):
     student_id: str
     quiz_id: str
     choice: int
@@ -223,89 +229,90 @@ async def post_bookmark(lid: str, body: BookmarkIn):
     return {"t": t, "count": len(mine) + 1, "duplicate": False}
 
 
-@app.post("/api/lectures/{lid}/quiz")
-async def create_quiz(lid: str):
+@app.post("/api/lectures/{lid}/quiz/self")
+async def self_quiz(lid: str, body: SelfQuizIn):
+    """A student taps 'Test myself': write one question from the last few minutes, just for them."""
     lec = get_lecture(lid)
-    if lec.status != "live":
-        raise HTTPException(409, "lecture is not live")
+    if lec.status == "waiting":
+        raise HTTPException(409, "the lecture hasn't started yet")
+    if time.time() - lec.last_self_quiz.get(body.student_id, 0.0) < SELF_QUIZ_COOLDOWN:
+        raise HTTPException(429, "one moment, still writing your last question")
     now = lec.elapsed()
     text = lec.text_between(now - QUIZ_LOOKBACK, now)
     if not text.strip():
-        raise HTTPException(400, "no transcript yet - speak for a bit first")
+        raise HTTPException(400, "nothing has been said yet, try again in a moment")
+    lec.last_self_quiz[body.student_id] = time.time()
+    seen = [q["question"] for q in lec.self_quizzes.values() if q["student_id"] == body.student_id][-6:]
     try:
-        q = await agents.make_quiz(text)
+        q = await agents.make_quiz(text, seen)
     except Exception as e:  # noqa: BLE001
+        lec.last_self_quiz.pop(body.student_id, None)
         raise HTTPException(502, f"quiz agent failed: {e}")
     quiz = {
         "id": uuid.uuid4().hex[:6],
+        "student_id": body.student_id,
         "created_t": now,
-        "expires_at": time.time() + QUIZ_SECONDS,
         "question": q["question"],
         "options": q["options"],
         "correct_index": q["correct_index"],
         "explanation": q.get("explanation", ""),
         "concept": q.get("concept", ""),
-        "answers": {},  # student_id -> choice
+        "answer": None,  # the student's choice, once they answer
     }
-    lec.quizzes.append(quiz)
+    lec.self_quizzes[quiz["id"]] = quiz
     await notify(lec)
-    return {"id": quiz["id"]}
+    # never send the correct answer until the student has answered
+    return {"id": quiz["id"], "question": quiz["question"], "options": quiz["options"], "concept": quiz["concept"]}
 
 
-@app.post("/api/lectures/{lid}/answers")
-async def post_answer(lid: str, body: AnswerIn):
+@app.post("/api/lectures/{lid}/quiz/self/answer")
+async def self_quiz_answer(lid: str, body: SelfAnswerIn):
     lec = get_lecture(lid)
-    quiz = next((q for q in lec.quizzes if q["id"] == body.quiz_id), None)
-    if not quiz:
+    quiz = lec.self_quizzes.get(body.quiz_id)
+    if not quiz or quiz["student_id"] != body.student_id:
         raise HTTPException(404, "quiz not found")
     if not 0 <= body.choice < len(quiz["options"]):
         raise HTTPException(400, "bad choice")
-    quiz["answers"].setdefault(body.student_id, body.choice)  # first answer wins
+    if quiz["answer"] is None:  # first answer wins
+        quiz["answer"] = body.choice
     await notify(lec)
     return {
-        "correct": quiz["answers"][body.student_id] == quiz["correct_index"],
+        "correct": quiz["answer"] == quiz["correct_index"],
         "correct_index": quiz["correct_index"],
         "explanation": quiz["explanation"],
     }
 
 
+def self_check_stats(lec: Lecture) -> dict:
+    """Anonymous class-wide view of the students' self-tests, for the lecturer."""
+    answered = [q for q in lec.self_quizzes.values() if q["answer"] is not None]
+    right = sum(1 for q in answered if q["answer"] == q["correct_index"])
+    by_concept: dict[str, dict] = {}
+    for q in answered:
+        name = q["concept"].strip() or "General"
+        e = by_concept.setdefault(name.lower(), {"concept": name, "answered": 0, "missed": 0})
+        e["answered"] += 1
+        e["missed"] += 1 if q["answer"] != q["correct_index"] else 0
+    missed = sorted((e for e in by_concept.values() if e["missed"]), key=lambda e: (-e["missed"], -e["answered"]))[:5]
+    return {
+        "requested": len(lec.self_quizzes),
+        "answered": len(answered),
+        "pct_correct": round(100 * right / len(answered)) if answered else None,
+        "missed": missed,
+    }
+
+
 @app.get("/api/lectures/{lid}/public")
 async def public_state(lid: str, student_id: str = ""):
-    """What a student's phone needs. Never includes the correct answer."""
+    """What a student's phone needs."""
     lec = get_lecture(lid)
-    active = None
-    if lec.quizzes:
-        q = lec.quizzes[-1]
-        left = q["expires_at"] - time.time()
-        if left > 0:
-            active = {"id": q["id"], "question": q["question"], "options": q["options"], "seconds_left": round(left, 1)}
     mine = sum(1 for b in lec.bookmarks if b["student_id"] == student_id)
-    return {"id": lec.id, "status": lec.status, "elapsed": lec.elapsed(), "active_quiz": active, "my_bookmarks": mine}
+    return {"id": lec.id, "status": lec.status, "elapsed": lec.elapsed(), "my_bookmarks": mine}
 
 
 @app.get("/api/lectures/{lid}/state")
 async def lecturer_state(lid: str):
     lec = get_lecture(lid)
-    quizzes = []
-    for q in lec.quizzes:
-        counts = [0] * len(q["options"])
-        for c in q["answers"].values():
-            counts[c] += 1
-        total = sum(counts)
-        quizzes.append(
-            {
-                "id": q["id"],
-                "created_t": q["created_t"],
-                "question": q["question"],
-                "options": q["options"],
-                "correct_index": q["correct_index"],
-                "concept": q["concept"],
-                "counts": counts,
-                "total": total,
-                "pct_correct": round(100 * counts[q["correct_index"]] / total) if total else None,
-                "open": q["expires_at"] > time.time(),
-            }
-        )
     return {
         "id": lec.id,
         "status": lec.status,
@@ -315,7 +322,7 @@ async def lecturer_state(lid: str):
         "buckets": build_buckets(lec),
         "bookmarks_total": len(lec.bookmarks),
         "simulated_total": sum(1 for b in lec.bookmarks if b["simulated"]),
-        "quizzes": quizzes,
+        "self_checks": self_check_stats(lec),
     }
 
 
