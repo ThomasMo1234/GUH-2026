@@ -12,6 +12,7 @@
     "@elevenlabs/elevenlabs-js": "^2.77.0",
     "@elevenlabs/react": "^1.21.1",
     "@types/canvas-confetti": "^1.9.0",
+    "@xyflow/react": "^12.12.1",
     "canvas-confetti": "^1.9.4",
     "framer-motion": "^14.10.1",
     "lucide-react": "^1.70.0",

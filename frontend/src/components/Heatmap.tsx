@@ -8,12 +8,15 @@ export default function Heatmap({
   selected,
   onSelect,
   nowT,
+  nodeLabels,
 }: {
   buckets: Bucket[];
   selected: number | null;
   onSelect: (i: number) => void;
   /** current lecture time in seconds; the matching bar gets a marker */
   nowT?: number;
+  /** optional node_id -> label map when a Knowledge Graph is active */
+  nodeLabels?: Record<string, string>;
 }) {
   const [hovered, setHovered] = useState<number | null>(null);
   const max = Math.max(1, ...buckets.map((b) => b.count));
@@ -47,13 +50,14 @@ export default function Heatmap({
           <span />
         </div>
 
-        <div className="heat">
+        <div className="heat" style={{ gap: buckets.length > 26 ? 3 : 6 }}>
           {buckets.map((b, i) => {
             const r = b.count / max;
             const isNow = nowT !== undefined && nowT >= b.start && nowT < b.end;
             const isSel = selected === i;
             const isHov = hovered === i;
             const targetHeight = b.count === 0 ? "6%" : `${Math.max(16, r * 100)}%`;
+            const topicLabel = b.node_id && nodeLabels ? nodeLabels[b.node_id] : undefined;
 
             return (
               <button
@@ -63,7 +67,7 @@ export default function Heatmap({
                 onClick={() => onSelect(i)}
                 onMouseEnter={() => setHovered(i)}
                 onMouseLeave={() => setHovered((prev) => (prev === i ? null : prev))}
-                title={`${fmt(b.start)}–${fmt(b.end)} · ${b.count} bookmarked`}
+                title={`${fmt(b.start)}–${fmt(b.end)} · ${b.count} bookmarked${topicLabel ? ` · ${topicLabel}` : ""}`}
               >
                 <AnimatePresence>
                   {isHov && (
@@ -79,6 +83,12 @@ export default function Heatmap({
                       <span>
                         {b.count} {b.count === 1 ? "bookmark" : "bookmarks"}
                       </span>
+                      {topicLabel && (
+                        <>
+                          <span className="dot-sep">·</span>
+                          <span className="tooltip-topic">{topicLabel}</span>
+                        </>
+                      )}
                     </motion.div>
                   )}
                 </AnimatePresence>

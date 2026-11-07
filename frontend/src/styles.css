@@ -1891,3 +1891,451 @@ select {
     display: none;
   }
 }
+
+
+/* ==========================================================================
+   Optional Lecture Knowledge Graph (React Flow) & Sample Audio Sync
+   ========================================================================== */
+
+.tooltip-topic {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.92;
+}
+
+.kg-dropzone {
+  padding: 18px;
+  border-radius: 14px;
+  border: 1.5px dashed var(--line-strong);
+  background: var(--card-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.kg-dropzone.is-dragover {
+  border-color: var(--text);
+  background: var(--card);
+}
+
+.kg-drop-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+}
+
+.kg-drop-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.kg-drop-Main strong,
+.kg-drop-main strong {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 700;
+}
+
+.kg-drop-actions {
+  gap: 8px;
+}
+
+/* Sample 20-Minute Lecture Audio Bar */
+.kg-audio-bar {
+  padding: 13px 15px;
+  margin-bottom: 12px;
+  border-radius: 14px;
+  background: var(--card-subtle);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.kg-audio-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.kg-audio-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.kg-audio-player {
+  width: 100%;
+  height: 36px;
+  border-radius: 8px;
+}
+
+.kg-jump-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.kg-jump-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--dim);
+  margin-right: 2px;
+}
+
+.kg-jump-pill {
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--card);
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 600;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.kg-jump-pill:hover {
+  border-color: var(--text);
+  background: var(--card-subtle);
+}
+
+.kg-jump-pill.is-spike {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+}
+
+/* Red Confusion Alert Banner & Calm Topic Inspector Banner */
+.kg-alert-banner {
+  margin-bottom: 12px;
+  padding: 13px 15px;
+  border-radius: 14px;
+  background: var(--bad-bg);
+  border: 1.5px solid var(--accent);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kg-alert-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+.kg-alert-pulse {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+  animation: pulseSubtle 1.4s infinite;
+  flex-shrink: 0;
+}
+
+.kg-alert-ic {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.kg-alert-headline {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.kg-alert-time {
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid var(--accent-border);
+  color: var(--accent);
+}
+
+.kg-alert-pivot {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 1.48;
+  color: var(--text);
+}
+
+.kg-alert-pivot svg {
+  color: var(--sage);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.kg-inspect-banner {
+  margin-bottom: 12px;
+  padding: 10px 13px;
+  border-radius: 12px;
+  background: var(--sage-soft);
+  border: 1px solid var(--sage-border);
+  color: var(--text);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kg-inspect-banner svg {
+  color: var(--sage);
+  flex-shrink: 0;
+}
+
+/* React Flow Graph Canvas */
+.kg-canvas-wrap {
+  position: relative;
+  height: 440px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--card-subtle);
+  border: 1px solid var(--line);
+}
+
+.kg-canvas-wrap.is-expanded {
+  flex: 1;
+  min-height: 520px;
+  height: auto;
+}
+
+/* Circular Ontology Nodes */
+.kg-circle-node {
+  position: relative;
+  border-radius: 50%;
+  border: 3px solid #ffffff;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 12px;
+  box-shadow: 0 6px 18px rgba(25, 25, 24, 0.14);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    transform 0.22s ease,
+    opacity 0.22s ease,
+    background-color 0.22s ease,
+    box-shadow 0.22s ease;
+}
+
+[data-theme="dark"] .kg-circle-node {
+  border-color: #2c2c28;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+}
+
+.kg-circle-node:hover {
+  transform: scale(1.04);
+}
+
+.kg-circle-node.is-core .kg-circle-label {
+  font-size: 13.5px;
+  font-weight: 800;
+}
+
+.kg-circle-label {
+  position: relative;
+  z-index: 2;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.22;
+  letter-spacing: -0.01em;
+  word-break: break-word;
+}
+
+.kg-circle-node.is-dimmed {
+  opacity: 0.44;
+}
+
+.kg-circle-node.is-inspected {
+  transform: scale(1.06);
+  box-shadow:
+    0 0 0 4px var(--text),
+    0 10px 24px rgba(25, 25, 24, 0.2);
+}
+
+.kg-circle-node.is-alert {
+  transform: scale(1.1);
+  border-color: #ffffff;
+  box-shadow:
+    0 0 0 6px rgba(200, 70, 40, 0.26),
+    0 12px 30px rgba(200, 70, 40, 0.42);
+  z-index: 10;
+}
+
+.kg-alert-halo {
+  position: absolute;
+  inset: -11px;
+  border-radius: 50%;
+  border: 2.5px solid #c84628;
+  animation: kgHaloPulse 1.6s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes kgHaloPulse {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.22);
+    opacity: 0;
+  }
+}
+
+.kg-node-badge {
+  position: absolute;
+  top: -9px;
+  right: -6px;
+  z-index: 4;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+.kg-node-badge.alert-badge {
+  background: #191918;
+  color: #ffffff;
+  border: 1.5px solid #ffffff;
+}
+
+.kg-node-badge.inspect-badge {
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+}
+
+.kg-node-badge.subtle-count-badge {
+  background: var(--card);
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
+}
+
+/* React Flow Controls & Legend */
+.kg-canvas-wrap .react-flow__controls {
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.kg-canvas-wrap .react-flow__controls-button {
+  background: var(--card);
+  color: var(--text);
+  border-bottom: 1px solid var(--line);
+  fill: currentColor;
+}
+
+.kg-canvas-wrap .react-flow__controls-button:hover {
+  background: var(--card-subtle);
+}
+
+.kg-legend {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--dim);
+  pointer-events: none;
+  box-shadow: var(--shadow-sm);
+}
+
+.kg-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.kg-legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.kg-legend-alert {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.kg-node-detail {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--card-subtle);
+  border: 1px solid var(--line);
+}
+
+.kg-node-detail-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+
+/* Lecture Hall Projector Fullscreen Modal */
+.kg-fullscreen-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(25, 25, 24, 0.52);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  padding: 20px;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+}
+
+.kg-card-fullscreen {
+  width: 100%;
+  max-width: 1440px;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}

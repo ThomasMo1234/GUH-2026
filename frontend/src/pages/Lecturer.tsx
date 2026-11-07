@@ -22,6 +22,7 @@ import {
 import { api, fmt, Insights, LecturerState, MomentSummary, post } from "../api";
 import { useLive } from "../hooks";
 import Heatmap from "../components/Heatmap";
+import KnowledgeGraphCard from "../components/KnowledgeGraphCard";
 import { LiveWaveform, SignalBrand, ThemeToggle } from "../components/AmbientChrome";
 
 export default function Lecturer() {
@@ -166,6 +167,14 @@ export default function Lecturer() {
     if (bestIdx === -1 || bestCount === 0) return null;
     return { idx: bestIdx, bucket: s.buckets[bestIdx] };
   }, [s?.buckets]);
+
+  const nodeLabels = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const n of s?.knowledge_graph?.nodes ?? []) {
+      m[n.id] = n.label;
+    }
+    return m;
+  }, [s?.knowledge_graph]);
 
   const copyJoinLink = () => {
     navigator.clipboard?.writeText(joinUrl);
@@ -338,6 +347,7 @@ export default function Lecturer() {
                   selected={sel}
                   onSelect={setSel}
                   nowT={status === "live" ? clock : undefined}
+                  nodeLabels={nodeLabels}
                 />
               ) : (
                 <div className="empty-stage">
@@ -438,6 +448,22 @@ export default function Lecturer() {
                 )}
               </AnimatePresence>
             </motion.div>
+
+            {/* Optional Slide Knowledge Graph & Sample Audio Sync Card */}
+            <KnowledgeGraphCard
+              lectureId={id}
+              status={status}
+              graph={s?.knowledge_graph}
+              buckets={s?.buckets ?? []}
+              selectedBucketIdx={sel}
+              onSelectBucket={setSel}
+              roomSize={s?.room_size ?? Math.max(1, s?.bookmarks_total ?? 1)}
+              hasSimulated={!!s?.simulated_total}
+              audioMode={!!s?.audio_mode}
+              momentSummary={moment && !("error" in moment) ? moment : undefined}
+              onRefresh={refetch}
+              onClearLocalResults={clearResults}
+            />
 
             {/* Student Self-Checks Card */}
             <motion.div
