@@ -36,15 +36,16 @@ Students tap **"I'm lost"** to bookmark a confusing moment in a lecture. The lec
 - Double-tap protection: a student's bookmarks within 15 s of their previous one are ignored.
 
 ## Current state (update me)
-TESTED (sandbox, Nov 2026):
-- Backend end to end with `MOCK_AI=1`: create lecture, demo replay (including running the demo twice in a row: no duplicate lines), bookmark, student self-quiz and answer, state/heatmap buckets, digest, insights, and the new `POST /api/lectures/{id}/moments/summary` (normal call, empty window -> 400, bad range -> 400).
-- Frontend `npm run build` (TypeScript strict type-check passes) and the Vite dev server proxying `/api` to the backend, including the new endpoint.
+TESTED (local Windows & sandbox, Nov 2026):
+- Backend running on http://127.0.0.1:8000 with MOCK_AI=1 (/api/health responds OK). Zero backend or API contract changes.
+- Frontend revamped with a clean, grounded educational UI (`framer-motion`, `lucide-react`, Plus Jakarta Sans + JetBrains Mono, warm alabaster paper palette + dark mode toggle, zero rainbow gradients or 3D filler art).
+- Frontend `npm run build` (`tsc --noEmit && vite build`) passes cleanly; Vite HMR dev server on `http://localhost:5173/` serves `/` with 200 OK while proxying `/api` to port 8000.
+- Backend end to end with `MOCK_AI=1`: create lecture, demo replay (including running the demo twice in a row: no duplicate lines), bookmark, student self-quiz and answer, state/heatmap buckets, digest, insights, and `POST /api/lectures/{id}/moments/summary`.
 
 UNTESTED:
 - Live mic transcription with a real `ELEVENLABS_API_KEY` (Scribe).
-- Real Claude calls for the four agents (prompts and JSON parsing are written but unproven on real output; this includes the new moment-summary prompt).
-- The UI in an actual browser (the flat restyle, the live clock, the heatmap "now" marker, the moment-summary panel), especially the student page on a phone through a tunnel.
-- Behaviour on venue Wi-Fi.
+- Real Claude calls for the four agents (prompts and JSON parsing are written but unproven on real output; this includes the moment-summary prompt).
+- Multi-phone testing through a tunnel (`cloudflared`) on venue Wi-Fi.
 
 ## Known gaps and risks
 - State is in memory: restarting the backend loses the lecture.
@@ -56,13 +57,12 @@ UNTESTED:
 - Moment summary is cached per (window, number of students); it refreshes when more students bookmark that window.
 
 ## Next tasks (priority order)
-1. Run it with real keys. Fix whatever breaks (see UNTESTED above). Check the moment-summary output on the real demo transcript.
-2. Test with 2-3 phones through a tunnel (`cloudflared tunnel --url http://localhost:5173`, then paste the URL in the box under the QR code).
-3. Look at the new UI in a real browser and on a phone; tweak colours in `:root` of `styles.css` if needed.
-4. Tune agent prompts on the real demo transcript until quizzes, explanations and summaries are consistently good.
-5. Pitch: write the 60-second script, rehearse 3 times, record a backup demo video.
-6. Submit on Devpost with 20+ minutes to spare; opt in to the GreatUniHack challenge.
-7. Stretch (only after the above): n8n webhook on lecture end that emails each student their digest (cheap shot at the n8n prize); ElevenLabs text-to-speech to read the digest aloud.
+1. Run it with real keys (`ANTHROPIC_API_KEY` and `ELEVENLABS_API_KEY`). Fix whatever breaks (see UNTESTED above). Check the moment-summary output on the real demo transcript.
+2. Test with 2-3 phones through a tunnel (`cloudflared tunnel --url http://localhost:5173`, then paste the URL in the box under the QR code) and verify mobile touch feel in both Daylight and Studio themes.
+3. Tune agent prompts on the real demo transcript until quizzes, explanations and summaries are consistently good.
+4. Pitch: write the 60-second script, rehearse 3 times, record a backup demo video.
+5. Submit on Devpost with 20+ minutes to spare; opt in to the GreatUniHack challenge.
+6. Stretch (only after the above): n8n webhook on lecture end that emails each student their digest (cheap shot at the n8n prize); ElevenLabs text-to-speech to read the digest aloud.
 
 ## Log
 (Newest at the bottom. Format: `### YYYY-MM-DD HH:MM, who/agent`, then what changed, what's next.)
@@ -101,3 +101,35 @@ UNTESTED:
 - Lecturer page: the "Live quiz" card is now **Student self-checks**: anonymous % correct plus the concepts students miss most. Backend field `self_checks` in the lecturer state: `{requested, answered, pct_correct, missed[{concept, answered, missed}]}`.
 - Tested: backend with `MOCK_AI=1` (before the lecture starts -> 409, answer not leaked, 3 s cooldown -> 429, another student can't answer your quiz -> 404, second answer ignored, a second question differs, class stats correct, old quiz routes -> 404, bookmark/digest/insights/moment-summary still work, works after End). Frontend `npm run build` passes. NOT tested: a real browser or phone (so the button layout beside "I'm lost" on a small screen is unchecked), real Claude calls.
 - Next: same as before (real keys, phones). Also eyeball the "Test myself" button width on a small phone.
+
+
+### 2026-11-07, Agent (local run on Windows)
+- Created backend Python virtual environment (.venv) and installed requirements.
+- Created backend/.env with MOCK_AI=1.
+- Installed frontend node dependencies and verified build.
+- Started backend FastAPI on http://localhost:8000 and frontend Vite dev server on http://localhost:5173.
+- Tested: curl http://localhost:8000/api/health (200 OK), http://localhost:5173 (200 OK), http://localhost:5173/api/health (200 OK via proxy).
+- UNTESTED: live mic transcription with real ElevenLabs key, Claude API calls with real keys.
+
+
+### 2026-11-07, Gemini (full Apple Glass + Electro Studio UI & animation revamp)
+- **Zero functional changes:** `backend/`, `api.ts`, `hooks.ts`, and `main.tsx` untouched; all endpoints, simulated student chips, QR tunnel URL override, demo speed options, quiz flow, and digest flow preserved verbatim.
+- **Packages & typography:** Installed `framer-motion`, `lucide-react`, and `canvas-confetti`; added `Plus Jakarta Sans` and `JetBrains Mono` in `index.html`.
+- **3 custom 3D assets (`frontend/public/assets/`):** Generated `hero-orb.jpg` (frosted glass acoustic orb), `lecturer-prism.jpg` (isometric crystal heatmap bars), and `digest-crystal.jpg` (glass study cards + clarity crystal).
+- **UI & UX overhaul across all pages:**
+  - `AmbientChrome.tsx` + `styles.css`: Soft aurora backdrop, Apple Liquid Glass bento cards, and a 1-click **Calm Daylight / Electro Studio (Dark)** theme toggle.
+  - `Home.tsx`: Levitating 3D orb hero, pastel-aurora Lecturer & Student bento cards, and 3-step workflow strip.
+  - `Lecturer.tsx` + `Heatmap.tsx`: Top studio command bar with live waveform & tabular clock, 4-tile KPI strip (including 1-click jump to peak confusion), spring-animated gradient heatmap bars with hover tooltips & sliding selection highlight, radial accuracy ring for self-checks, and Apple-pass QR card with 1-click copy link.
+  - `Student.tsx`: Breathing aurora `"I'm lost"` orb with shockwave tap ripples, full-width `"Test myself"` bento action card underneath (fixes narrow-screen layout), and A/B/C/D badge quiz modal with emerald/coral reveal + confetti on correct answers.
+  - `Digest.tsx`: Editorial study guide layout with pastel-tinted *Explained simply*, *Concrete example*, and *Check yourself* blocks.
+- **Tested:** `npm run build` (`tsc --noEmit && vite build`) passes cleanly; Vite HMR live reload on `http://localhost:5173/`; HTTP 200 verified on `/`, all 3 `/assets/*.jpg` files, and `/api/health`.
+- **UNTESTED:** Live mic transcription with real `ELEVENLABS_API_KEY`, real `ANTHROPIC_API_KEY` calls, and multi-phone physical device testing over `cloudflared`.
+
+
+### 2026-11-07, Gemini (grounded educational UI refinement & mic banner cleanup)
+- Removed rainbow aurora background blobs, background grid, button/orb multi-color gradients, and all 3D image assets (`frontend/public/assets/` deleted).
+- Shifted to a natural, realistic educational palette (`#f6f5f0` warm paper, `#ffffff` crisp cards, solid `#191918` primary buttons, matte terracotta `#c84628` for bookmarks/confusion, and forest sage `#1f7a52` for self-checks/fixes) while keeping smooth `framer-motion` spring physics.
+- Fixed single-bucket heatmap bar stretching (`max-width: 44px` + left alignment in `.heat`) and improved tooltip contrast.
+- Silenced the red `ELEVENLABS_API_KEY is not set` error banner in `Lecturer.tsx` when clicking "Start lecture + mic" locally without ElevenLabs keys so sessions start cleanly.
+- **Tested:** `npm run build` passes cleanly; Vite HMR verified live on `http://localhost:5173/`.
+- **UNTESTED:** Live mic with real `ELEVENLABS_API_KEY`, real `ANTHROPIC_API_KEY` calls, physical phones via `cloudflared`.
