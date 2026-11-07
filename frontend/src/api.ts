@@ -17,6 +17,7 @@ export type LecturerState = {
   id: string;
   status: "waiting" | "live" | "ended";
   elapsed: number;
+  speed?: number; // lecture seconds per real second (1 live, 3 or 6 in a fast demo)
   segments: { t_start: number; t_end: number; text: string }[];
   buckets: Bucket[];
   bookmarks_total: number;
@@ -46,6 +47,14 @@ export type DigestItem = {
 export type Insights = {
   summary: string;
   moments: { time: string; students_lost: number; what_was_said: string; why_confusing: string; suggested_fix: string }[];
+};
+
+/** AI "what should I re-explain?" summary for one 30-second window. Backend: POST /api/lectures/{id}/moments/summary */
+export type MomentSummary = {
+  students_lost: number;
+  summary: string;
+  reexplain: string[];
+  suggested_fix: string;
 };
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {

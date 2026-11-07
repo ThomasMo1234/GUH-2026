@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
 import { useScribe } from "@elevenlabs/react";
-import { api, fmt, Insights, LecturerState, post } from "../api";
+import { api, fmt, Insights, LecturerState, MomentSummary, post } from "../api";
 import { useLive } from "../hooks";
 import Heatmap from "../components/Heatmap";
 
@@ -14,6 +14,13 @@ export default function Lecturer() {
   const [sel, setSel] = useState<number | null>(null);
   const [speed, setSpeed] = useState(1);
   const [insights, setInsights] = useState<Insights | null>(null);
+  // AI "what to re-explain" summaries, keyed by the bucket's start time
+  const [summaries, setSummaries] = useState<Record<number, MomentSummary | { error: string }>>({});
+  const [summaryBusy, setSummaryBusy] = useState<number | null>(null);
+  // Live clock: the server only tells us `elapsed` every ~2s, so we tick locally in between,
+  // at the speed the server reports (1 for a real lecture, 3 or 6 for a fast demo replay).
+  const [sync, setSync] = useState({ base: 0, at: Date.now() });
+  const [tick, setTick] = useState(Date.now());
   // The QR code must contain a URL phones can reach. Paste your tunnel URL here (see README).
   const [base, setBase] = useState(localStorage.getItem("signal_join_base") || window.location.origin);
 
@@ -24,6 +31,33 @@ export default function Lecturer() {
       if (d.text && d.text.trim()) post(`/api/lectures/${id}/segments`, { text: d.text }).catch(() => {});
     },
   });
+
+  useEffect(() => {
+    if (s) setSync({ base: s.elapsed, at: Date.now() });
+  }, [s?.elapsed, s?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const t = setInterval(() => setTick(Date.now()), 250);
+    return () => clearInterval(t);
+  }, []);
+
+  // Safety net: if the backend ever sends the same line twice, only show it once.
+  const segments = useMemo(() => {
+    const seen = new Set<string>();
+    return (s?.segments ?? []).filter((g) => {
+      const k = `${Math.round(g.t_start)}|${g.text.trim()}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }, [s?.segments]);
+
+  // The backend wipes everything on start/demo, so drop the old local results too.
+  const clearResults = () => {
+    setInsights(null);
+    setSummaries({});
+    setSel(null);
+  };
 
   const run = async (label: string, fn: () => Promise<unknown>) => {
     setBusy(label);
@@ -40,6 +74,7 @@ export default function Lecturer() {
 
   const startLecture = () =>
     run("start", async () => {
+      clearResults();
       await post(`/api/lectures/${id}/start`);
       try {
         const { token } = await api<{ token: string }>("/api/scribe-token");
@@ -58,15 +93,35 @@ export default function Lecturer() {
   const runDemo = () =>
     run("demo", async () => {
       scribe.disconnect();
+      if (status === "live" && !window.confirm("Restart the demo? This clears the current transcript and bookmarks.")) return;
+      clearResults();
       await post(`/api/lectures/${id}/demo`, { speed, seed: true });
     });
 
   const quizNow = () => run("quiz", () => post(`/api/lectures/${id}/quiz`));
   const getInsights = () => run("insights", async () => setInsights(await api<Insights>(`/api/lectures/${id}/insights`)));
 
+  const summarise = async (start: number, end: number) => {
+    setSummaryBusy(start);
+    try {
+      const r = await post<MomentSummary>(`/api/lectures/${id}/moments/summary`, { start, end });
+      setSummaries((prev) => ({ ...prev, [start]: r }));
+    } catch (e) {
+      const m = (e as Error).message;
+      setSummaries((prev) => ({
+        ...prev,
+        [start]: { error: m === "Not Found" ? "The backend doesn't have the moment-summary endpoint yet (restart uvicorn so it picks up the new main.py)." : m },
+      }));
+    } finally {
+      setSummaryBusy(null);
+    }
+  };
+
   const joinUrl = `${base.replace(/\/$/, "")}/join/${id}`;
   const status = s?.status ?? "waiting";
+  const clock = status === "live" ? sync.base + ((tick - sync.at) / 1000) * (s?.speed ?? 1) : s?.elapsed ?? 0;
   const bucket = sel !== null && s ? s.buckets[sel] : null;
+  const moment = bucket ? summaries[bucket.start] : undefined;
   const quiz = s && s.quizzes.length ? s.quizzes[s.quizzes.length - 1] : null;
 
   return (
@@ -77,8 +132,8 @@ export default function Lecturer() {
         </div>
         <span className="chip">Code {id}</span>
         <span className={"chip" + (status === "live" ? " live" : "")}>{status === "live" ? "● LIVE" : status}</span>
-        <span className="chip">{fmt(s?.elapsed ?? 0)}</span>
-        {scribe.isConnected && <span className="chip">🎙 mic on</span>}
+        <span className="clock" title="Time into the lecture">{fmt(clock)}</span>
+        {scribe.isConnected && <span className="chip">Mic on</span>}
         <div className="spacer" />
         <div className="row">
           <button className="btn primary" onClick={startLecture} disabled={status === "live" || !!busy}>
@@ -105,7 +160,7 @@ export default function Lecturer() {
               {!!s?.simulated_total && <span className="chip warn">includes {s.simulated_total} simulated students</span>}
             </div>
             <p className="sub">One bar per 30 seconds. Click a bar to see what was being said.</p>
-            {s && s.buckets.length > 0 ? <Heatmap buckets={s.buckets} selected={sel} onSelect={setSel} /> : <p className="sub">Start the lecture to begin.</p>}
+            {s && s.buckets.length > 0 ? <Heatmap buckets={s.buckets} selected={sel} onSelect={setSel} nowT={status === "live" ? clock : undefined} /> : <p className="sub">Start the lecture to begin.</p>}
             {bucket && (
               <div className="bucket-text">
                 <b>
@@ -113,6 +168,31 @@ export default function Lecturer() {
                 </b>
                 <br />
                 {bucket.text || "Nothing was said in this window."}
+                <div style={{ marginTop: 12 }}>
+                  <button
+                    className="btn"
+                    onClick={() => summarise(bucket.start, bucket.end)}
+                    disabled={bucket.count === 0 || summaryBusy !== null}
+                  >
+                    {summaryBusy === bucket.start ? "Reading the bookmarks…" : moment && !("error" in moment) ? "Refresh summary" : "What should I re-explain?"}
+                  </button>
+                  {bucket.count === 0 && <span className="sub" style={{ marginLeft: 10 }}>No bookmarks here yet.</span>}
+                </div>
+                {moment && "error" in moment && <div className="err" style={{ marginTop: 12, marginBottom: 0 }}>{moment.error}</div>}
+                {moment && !("error" in moment) && (
+                  <div className="summary">
+                    <div className="h">Re-explain this ({moment.students_lost} students lost)</div>
+                    <p>{moment.summary}</p>
+                    {(moment.reexplain ?? []).length > 0 && (
+                      <ul>
+                        {moment.reexplain.map((x, i) => (
+                          <li key={i}>{x}</li>
+                        ))}
+                      </ul>
+                    )}
+                    {moment.suggested_fix && <p className="fix">Try: {moment.suggested_fix}</p>}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -222,8 +302,8 @@ export default function Lecturer() {
             <h2>Live transcript</h2>
             <p className="sub">Text only. Raw audio is never stored.</p>
             <div className="transcript">
-              {s?.segments.length === 0 && !scribe.partialTranscript && <span className="sub">Waiting for speech…</span>}
-              {s?.segments.map((g, i) => (
+              {segments.length === 0 && !scribe.partialTranscript && <span className="sub">Waiting for speech…</span>}
+              {segments.map((g, i) => (
                 <div key={i}>
                   <span className="t">{fmt(g.t_start)}</span>
                   {g.text}

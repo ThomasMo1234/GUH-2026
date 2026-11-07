@@ -125,3 +125,34 @@ async def lecturer_insights(windows: list[dict]) -> dict:
         }
     lines = [f"Window {i+1} (starts {w['time']}, {w['count']} students bookmarked): {w['text']}" for i, w in enumerate(windows)]
     return await _ask_json(SMART, INSIGHT_SYSTEM, "\n\n".join(lines), 900)
+
+
+# ------------------------------------------------------- moment summary agent
+MOMENT_SYSTEM = """You help a university lecturer see what to RE-EXPLAIN. Many students pressed an anonymous 'I'm lost' button
+during one 30-second window of the lecture. You get that window's transcript (with timestamps), the lecture just before it,
+and when in the window the presses happened (they often land just AFTER the confusing sentence).
+Use ONLY the transcript (live speech-to-text, may be noisy). Be concrete and kind. Hypothesise about WHY with hedged wording
+('likely'). Never invent numbers.
+JSON shape:
+{"summary": str (1-2 sentences: what students most likely did not follow),
+ "reexplain": [str] (2-3 short items: the specific ideas or terms to go back over),
+ "suggested_fix": str (one concrete way to re-explain it, e.g. a worked example or analogy)}"""
+
+
+async def moment_summary(window: str, lead_in: str, press_times: list[str], students: int) -> dict:
+    if MOCK:
+        return {
+            "summary": "Students likely lost the thread when two collision strategies were introduced back to back with new jargon.",
+            "reexplain": [
+                "What a collision is, with one concrete example (two keys, same slot)",
+                "The difference between chaining and open addressing",
+                "Why probing needs a consistent sequence for lookups",
+            ],
+            "suggested_fix": "Do chaining alone on the board with three keys, then show probing on the same keys so students can compare directly.",
+        }
+    user = (
+        f"{students} students pressed the button in this window, at: {', '.join(press_times)}\n\n"
+        f"Lecture just before the window:\n{lead_in or '(nothing, this is the start)'}\n\n"
+        f"The window itself:\n{window}"
+    )
+    return await _ask_json(SMART, MOMENT_SYSTEM, user, 600)

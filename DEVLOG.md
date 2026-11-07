@@ -36,15 +36,14 @@ Students tap **"I'm lost"** to bookmark a confusing moment in a lecture. The lec
 - Double-tap protection: a student's bookmarks within 15 s of their previous one are ignored.
 
 ## Current state (update me)
-TESTED (in a sandbox, Nov 2026):
-- Backend end to end with `MOCK_AI=1`: create lecture, demo replay, bookmark, quiz, answer, state/heatmap buckets, digest, insights.
-- Frontend `npm run build` (TypeScript type-check passes).
-- WebSocket ping passes through the Vite proxy.
+TESTED (sandbox, Nov 2026):
+- Backend end to end with `MOCK_AI=1`: create lecture, demo replay (including running the demo twice in a row: no duplicate lines), bookmark, quiz, answer, state/heatmap buckets, digest, insights, and the new `POST /api/lectures/{id}/moments/summary` (normal call, empty window -> 400, bad range -> 400).
+- Frontend `npm run build` (TypeScript strict type-check passes) and the Vite dev server proxying `/api` to the backend, including the new endpoint.
 
 UNTESTED:
 - Live mic transcription with a real `ELEVENLABS_API_KEY` (Scribe).
-- Real Claude calls for the three agents (prompts and JSON parsing are written but unproven on real output).
-- The UI in an actual browser, especially the student page on a phone through a tunnel.
+- Real Claude calls for the four agents (prompts and JSON parsing are written but unproven on real output; this includes the new moment-summary prompt).
+- The UI in an actual browser (the flat restyle, the live clock, the heatmap "now" marker, the moment-summary panel), especially the student page on a phone through a tunnel.
 - Behaviour on venue Wi-Fi.
 
 ## Known gaps and risks
@@ -52,15 +51,18 @@ UNTESTED:
 - Quiz needs transcript text first; "Quiz now" returns an error if nothing has been said yet.
 - Heatmap counts unique students per 30 s bucket; very long lectures make many thin bars.
 - Single lecturer per lecture; no auth. Anyone with the code can join.
-- Demo replay at real time takes 3 minutes; use the 6x option for dry runs.
+- Demo replay at real time takes 3 minutes; use the 6x option for dry runs. The demo does NOT end the lecture by itself (so students can still bookmark and take a quiz at the end); press End lecture.
+- Starting a lecture or a demo now wipes the previous transcript, bookmarks, quizzes and summaries for that code.
+- Moment summary is cached per (window, number of students); it refreshes when more students bookmark that window.
 
 ## Next tasks (priority order)
-1. Run it with real keys. Fix whatever breaks (see UNTESTED above).
+1. Run it with real keys. Fix whatever breaks (see UNTESTED above). Check the moment-summary output on the real demo transcript.
 2. Test with 2-3 phones through a tunnel (`cloudflared tunnel --url http://localhost:5173`, then paste the URL in the box under the QR code).
-3. Tune agent prompts on the real demo transcript until quizzes and explanations are consistently good.
-4. Pitch: write the 60-second script, rehearse 3 times, record a backup demo video.
-5. Submit on Devpost with 20+ minutes to spare; opt in to the GreatUniHack challenge.
-6. Stretch (only after the above): n8n webhook on lecture end that emails each student their digest (cheap shot at the n8n prize); ElevenLabs text-to-speech to read the digest aloud.
+3. Look at the new UI in a real browser and on a phone; tweak colours in `:root` of `styles.css` if needed.
+4. Tune agent prompts on the real demo transcript until quizzes, explanations and summaries are consistently good.
+5. Pitch: write the 60-second script, rehearse 3 times, record a backup demo video.
+6. Submit on Devpost with 20+ minutes to spare; opt in to the GreatUniHack challenge.
+7. Stretch (only after the above): n8n webhook on lecture end that emails each student their digest (cheap shot at the n8n prize); ElevenLabs text-to-speech to read the digest aloud.
 
 ## Log
 (Newest at the bottom. Format: `### YYYY-MM-DD HH:MM, who/agent`, then what changed, what's next.)
@@ -71,10 +73,22 @@ UNTESTED:
 - Dev environment note: team uses WSL2 Ubuntu; Node/npm must be installed first (see README).
 - Next: someone runs it with real keys (task 1 above).
 
-### first log
+### 2026-11-07, human (first run on WSL2)
    - Set up WSL2 + node via nvm. Backend runs (uvicorn on 8000). Frontend runs.
     - Not tested: anything with real API keys, mic, phones.
     next is to fix things: To fix: Lecturer should have some way to see a summary of what needs reexplaining about when  students bookmarked. So when the professor clicks on one of the charts, the AI will look at all the bookmarks related to that chart and will create a summary for professor on exactly what to “re-explain” for that specific segment.
     UI looks too ai generated and ugly right now
-    Duplicated transcript lines
+   - The transcript lines are duplicated  once (displayed twice) right now for every time stamp sometimes. Maybe only when you click run demo twice
+   - There needs to be  a live timer somewhere to display the current time of the lecture and show what time of the lecture we are at. 
+
     - make sure next developer knows all the steps to set up app on their machine too
+
+### 2026-11-07, Claude (first-run fixes: clock, UI, moment summary, duplicate lines, setup docs)
+- **Duplicate transcript lines (root cause):** `/demo` cleared the lecture but never stopped the previous `_replay` task, so running the demo twice ran two replays that both appended segments. Added `Lecture.run_id` and `Lecture.reset()`; `/demo`, `/start` and `/end` bump it and a replay quits if its id is stale. `/segments` also ignores an exact repeat of the previous line within 3 s. The frontend still hides exact duplicates as a safety net.
+- **Moment summary:** new `POST /api/lectures/{id}/moments/summary` (body `{start, end}`) in `main.py` plus a `moment_summary` agent in `agents.py` (SMART model, mock answer under `MOCK_AI=1`). It uses the bookmarks in that window (unique students, true count from the server) and timestamped transcript for the window and the 45 s before it. Returns `{students_lost, summary, reexplain[], suggested_fix}`. Lecturer page: click a bar, then "What should I re-explain?".
+- **Live clock:** the backend now also returns `speed` in the lecturer state; the lecturer header clock ticks locally at that speed and re-syncs on every poll (so it stays right after a page refresh during a 3x/6x demo). The heatmap marks the current bucket.
+- **UI:** restyled (`styles.css`, `Heatmap.tsx`): flat, one accent colour, serif headings, no gradients/glow/emoji. Class names unchanged.
+- Starting a lecture or demo now clears the old local results too; "Run demo" while live asks for confirmation before restarting.
+- **README:** added first-time setup for WSL2/Ubuntu (python3, venv, nvm, cloudflared) and a troubleshooting table.
+- Tested: see "Current state". NOT tested: real API keys, real mic, a real browser, phones.
+- Next: tasks 1 and 2 above.

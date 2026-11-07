@@ -43,6 +43,18 @@ class Lecture:
         self.insights: tuple[int, dict] | None = None  # (bookmark_count_when_made, result)
         self.sockets: set[WebSocket] = set()
         self.explain_lock = asyncio.Lock()
+        self.run_id = 0          # bumped whenever a demo replay starts/stops, so an old replay task knows to quit
+        self.moments: dict[tuple, dict] = {}  # (start, end, students) -> cached moment summary
+
+    def reset(self) -> None:
+        """Wipe everything from a previous run (and stop any demo replay that is still going)."""
+        self.run_id += 1
+        self.segments.clear()
+        self.bookmarks.clear()
+        self.quizzes.clear()
+        self.insights = None
+        self.moments.clear()
+        self.ended_elapsed = 0.0
 
     def elapsed(self) -> float:
         if self.status == "live":
@@ -51,6 +63,10 @@ class Lecture:
 
     def text_between(self, t0: float, t1: float) -> str:
         return " ".join(s["text"] for s in self.segments if s["t_end"] >= t0 and s["t_start"] <= t1)
+
+    def lines_between(self, t0: float, t1: float) -> str:
+        """Same as text_between but each segment is prefixed with its timestamp, e.g. '[01:12] ...'."""
+        return "\n".join(f"[{mmss(s['t_start'])}] {s['text']}" for s in self.segments if s["t_end"] >= t0 and s["t_start"] <= t1)
 
 
 LECTURES: dict[str, Lecture] = {}
@@ -126,6 +142,11 @@ class DemoIn(BaseModel):
     seed: bool = True        # add SIMULATED students so the heatmap has something to show
 
 
+class MomentIn(BaseModel):
+    start: float             # heatmap bucket start, seconds into the lecture
+    end: float               # heatmap bucket end
+
+
 # ---------------------------------------------------------------- routes
 @app.get("/api/health")
 async def health():
@@ -158,6 +179,7 @@ async def create_lecture():
 @app.post("/api/lectures/{lid}/start")
 async def start_lecture(lid: str):
     lec = get_lecture(lid)
+    lec.reset()
     lec.status, lec.started_at, lec.speed = "live", time.time(), 1.0
     await notify(lec)
     return {"ok": True}
@@ -169,6 +191,7 @@ async def end_lecture(lid: str):
     if lec.status == "live":
         lec.ended_elapsed = lec.elapsed()
         lec.status = "ended"
+        lec.run_id += 1  # stops a demo replay that is still running
     await notify(lec)
     return {"ok": True}
 
@@ -178,6 +201,8 @@ async def post_segment(lid: str, body: SegmentIn):
     lec = get_lecture(lid)
     if lec.status != "live" or not body.text.strip():
         return {"ok": False}
+    if lec.segments and lec.segments[-1]["text"] == body.text.strip() and lec.elapsed() - lec.segments[-1]["t_end"] < 3 * lec.speed:
+        return {"ok": False}  # duplicate delivery of the same sentence
     add_segment(lec, body.text)
     await notify(lec)
     return {"ok": True}
@@ -285,6 +310,7 @@ async def lecturer_state(lid: str):
         "id": lec.id,
         "status": lec.status,
         "elapsed": lec.elapsed(),
+        "speed": lec.speed,
         "segments": lec.segments[-60:],
         "buckets": build_buckets(lec),
         "bookmarks_total": len(lec.bookmarks),
@@ -338,19 +364,49 @@ async def insights(lid: str):
     return res
 
 
+@app.post("/api/lectures/{lid}/moments/summary")
+async def moment_summary(lid: str, body: MomentIn):
+    """Lecturer clicked one heatmap bar: read every bookmark in that window and say what to re-explain."""
+    lec = get_lecture(lid)
+    t0, t1 = body.start, body.end
+    if t1 <= t0:
+        raise HTTPException(400, "end must be after start")
+    # same rule as the heatmap: one vote per student per window
+    ts = sorted(b["t"] for b in lec.bookmarks if t0 <= b["t"] < t1)
+    students = {b["student_id"] for b in lec.bookmarks if t0 <= b["t"] < t1}
+    if not students:
+        raise HTTPException(400, "nobody bookmarked this window")
+    key = (t0, t1, len(students))
+    if key in lec.moments:
+        return lec.moments[key]
+    window = lec.lines_between(t0, t1)
+    lead_in = lec.lines_between(t0 - 45, t0 - 0.1)
+    if not window.strip():
+        raise HTTPException(400, "no transcript for this window yet")
+    try:
+        res = await agents.moment_summary(window, lead_in, [mmss(t) for t in ts], len(students))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"summary agent failed: {e}")
+    res["students_lost"] = len(students)  # true count comes from us, never from the model
+    res["reexplain"] = [str(x) for x in res.get("reexplain", [])][:4]
+    res.setdefault("summary", "")
+    res.setdefault("suggested_fix", "")
+    lec.moments[key] = res
+    return res
+
+
 @app.post("/api/lectures/{lid}/demo")
 async def start_demo(lid: str, body: DemoIn):
     """Replays the bundled lecture transcript so you can demo with no mic and no Wi-Fi risk."""
     lec = get_lecture(lid)
-    lec.segments.clear()
-    lec.bookmarks.clear()
+    lec.reset()  # also bumps run_id, which makes any earlier replay task stop (that was the duplicate-lines bug)
     lec.status, lec.started_at, lec.speed = "live", time.time(), max(0.5, body.speed)
-    asyncio.create_task(_replay(lec, body.seed))
+    asyncio.create_task(_replay(lec, body.seed, lec.run_id))
     await notify(lec)
     return {"ok": True}
 
 
-async def _replay(lec: Lecture, seed: bool) -> None:
+async def _replay(lec: Lecture, seed: bool, run_id: int) -> None:
     rng = random.Random(7)
     # simulated classmates: a cluster on the hard bit (collisions / load factor) and a smaller one later
     sims = sorted([rng.uniform(70, 98) for _ in range(14)] + [rng.uniform(98, 115) for _ in range(6)] + [rng.uniform(132, 150) for _ in range(4)]) if seed else []
@@ -359,8 +415,8 @@ async def _replay(lec: Lecture, seed: bool) -> None:
         wait = (seg["t_end"] - lec.elapsed()) / lec.speed
         if wait > 0:
             await asyncio.sleep(wait)
-        if lec.status != "live":
-            return
+        if lec.status != "live" or lec.run_id != run_id:
+            return  # lecture ended, or a newer demo/lecture took over
         add_segment(lec, seg["text"], seg["t_start"], seg["t_end"])
         while sim_i < len(sims) and sims[sim_i] <= seg["t_end"]:
             lec.bookmarks.append({"student_id": f"sim-{sim_i}", "t": sims[sim_i], "simulated": True, "explanation": None})

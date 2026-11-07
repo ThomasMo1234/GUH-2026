@@ -106,7 +106,7 @@ export default function Student() {
             const [qid, r] = answeredPending;
             return (
               <>
-                <div className="q">{r.correct ? "✅ Nice, that's right" : "❌ Not quite"}</div>
+                <div className="q">{r.correct ? "Correct" : "Not quite"}</div>
                 <p className="sub">{r.question}</p>
                 {r.options.map((o, i) => (
                   <div key={i} className={"choice" + (i === r.correct_index ? " right" : i === r.choice ? " wrong" : "")}>{o}</div>
