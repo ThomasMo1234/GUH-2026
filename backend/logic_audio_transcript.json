@@ -1,0 +1,242 @@
+[
+  {
+    "t_start": 0,
+    "t_end": 30,
+    "node_id": "nat-deduction",
+    "text": "Natural deduction proofs are a frustratingly hard skill compared to other skills in this course. Rather than mastering every hard case, aim to build an acquaintance for constructing the simplest proofs and filling in missing steps."
+  },
+  {
+    "t_start": 30,
+    "t_end": 60,
+    "node_id": "semantics",
+    "text": "Don't let yourself get obsessed with super-hard proofs. Hopefully what we do this week in Boolean semantics will look much more manageable and familiar, so treat hard natural deduction as an advanced topic."
+  },
+  {
+    "t_start": 60,
+    "t_end": 90,
+    "node_id": "prop-logic",
+    "text": "Let's work through one of the core exercises I was asked about: show that the propositional formula (A or (A and B)) implies A is a tautology."
+  },
+  {
+    "t_start": 90,
+    "t_end": 120,
+    "node_id": "tautology",
+    "text": "In the question you're only given the formula itself. To show it is a tautology in natural deduction, put the sideways T—the turnstile—to the left of it with no assumptions and find a derivation going upwards."
+  },
+  {
+    "t_start": 120,
+    "t_end": 150,
+    "node_id": "tautology",
+    "text": "What does having no assumptions on the left of the turnstile mean? It says everyone who reasons correctly must accept the formula on the right."
+  },
+  {
+    "t_start": 150,
+    "t_end": 180,
+    "node_id": "tautology",
+    "text": "A tautology isn't always obviously true—its proof can be very hard—but its truth follows solely from the meanings of the logical connectives once you see how they combine."
+  },
+  {
+    "t_start": 180,
+    "t_end": 210,
+    "node_id": "semantics",
+    "text": "This week we learn an equivalent semantic definition: a formula is a tautology if, when you calculate its truth table, the column for the whole formula has only ones—true no matter what happens to the variables."
+  },
+  {
+    "t_start": 210,
+    "t_end": 240,
+    "node_id": "tautology",
+    "text": "The proof-theoretic way of thinking about the exact same property is: I can prove the formula without any assumptions on the left of the turnstile."
+  },
+  {
+    "t_start": 240,
+    "t_end": 270,
+    "node_id": "nat-deduction",
+    "text": "Which rule should we guess created the bottom line? Conjunction elimination will definitely be used eventually, because you probably worked forwards—but working backwards from the bottom is much easier."
+  },
+  {
+    "t_start": 270,
+    "t_end": 300,
+    "node_id": "implies-intro",
+    "text": "If we zoom out from (A or (A and B)) implies A to the outer level of the formula, the main connective joining the bracketed parts is implication, so we start with implies-introduction."
+  },
+  {
+    "t_start": 300,
+    "t_end": 330,
+    "node_id": "implies-intro",
+    "text": "Just like proofs in English—where to prove an implication you assume the if-part and prove the then-part—implies-introduction follows the same procedure while keeping formal track of every assumption."
+  },
+  {
+    "t_start": 330,
+    "t_end": 360,
+    "node_id": "implies-intro",
+    "text": "Applying implies-introduction backwards, copy the left-hand side A or (A and B) into the assumption list on the left of the sideways T, and copy the right-hand side A as our new goal."
+  },
+  {
+    "t_start": 360,
+    "t_end": 390,
+    "node_id": "elim-strategy",
+    "text": "Now we look stuck! The easy guess is always the intro rule for the connective on the right of the sideways T, but on the right we only have atomic A—so no clue comes from the right-hand side."
+  },
+  {
+    "t_start": 390,
+    "t_end": 420,
+    "node_id": "elim-strategy",
+    "text": "In this situation you are guaranteed the rule used was an elimination rule, because every intro rule—and-intro, or-intro, implies-intro—leaves its connective as a signature on the bottom right."
+  },
+  {
+    "t_start": 420,
+    "t_end": 450,
+    "node_id": "elim-strategy",
+    "text": "When using an elim rule, inspect your assumptions on the left and focus on formulas where your goal A occurs as a sub-part. Here A occurs twice inside A or (A and B), so we can extract it."
+  },
+  {
+    "t_start": 450,
+    "t_end": 480,
+    "node_id": "or-elim",
+    "text": "Looking at the global structure of our chosen assumption A or (A and B), the connective outside all the brackets is OR, so to unpack it we choose the or-elimination rule."
+  },
+  {
+    "t_start": 480,
+    "t_end": 510,
+    "node_id": "elim-strategy",
+    "text": "Could it be something horrible like double-negation elimination? Only if you get completely stuck—always try the elimination rule for the assumption's main connective first."
+  },
+  {
+    "t_start": 510,
+    "t_end": 540,
+    "node_id": "or-elim",
+    "text": "Or-elimination is the rule people tend to find scariest on the sheet: it is the really long one, and the only natural deduction rule with three separate premises you have to prove above the line."
+  },
+  {
+    "t_start": 540,
+    "t_end": 570,
+    "node_id": "or-elim",
+    "text": "Why three things? Because an OR statement only tells you one thing or another happened—to make use of it, you have to show your desired conclusion follows in every possible case."
+  },
+  {
+    "t_start": 570,
+    "t_end": 600,
+    "node_id": "or-elim",
+    "text": "For instance, suppose I come home to my flat and have two problems: the flat has been flooded from above, and I can't find my socks—they are either in the washing basket or in the drawer."
+  },
+  {
+    "t_start": 600,
+    "t_end": 630,
+    "node_id": "or-elim",
+    "text": "If socks in the basket are wet AND socks in the drawer are wet, I deduce my socks must be wet even without knowing where they are! If even one hiding place were dry, I couldn't conclude that."
+  },
+  {
+    "t_start": 630,
+    "t_end": 660,
+    "node_id": "or-elim",
+    "text": "So to prove a certain conclusion like 'my socks are wet' from an uncertain OR hypothesis, that conclusion must follow in both cases. First, we write the premise proving the OR statement itself."
+  },
+  {
+    "t_start": 660,
+    "t_end": 690,
+    "node_id": "axiom-gamma",
+    "text": "From assumption A or (A and B), proving A or (A and B) holds immediately by the Axiom rule—in lectures I write the word 'axiom' right on top to save space."
+  },
+  {
+    "t_start": 690,
+    "t_end": 720,
+    "node_id": "or-elim",
+    "text": "Next, for the first case branch of or-elim, copy the assumptions A or (A and B), add the left-hand side of the OR—which is A—and set our goal on the right to A."
+  },
+  {
+    "t_start": 720,
+    "t_end": 750,
+    "node_id": "or-elim",
+    "text": "For the second case branch, copy the same assumption A or (A and B), add the right-hand side of the OR—which is A and B—and ask: what must we prove on the right-hand side?"
+  },
+  {
+    "t_start": 750,
+    "t_end": 780,
+    "node_id": "or-elim",
+    "text": "Not A and B—it is still A! Look at the shape of the or-elim rule: whatever goal was downstairs on the right is always copied as the goal of BOTH upper case subproofs."
+  },
+  {
+    "t_start": 780,
+    "t_end": 810,
+    "node_id": "or-elim",
+    "text": "Here A behaves just like 'my socks are wet': to deduce it from a disjunction of two conditions, you must deduce that exact same goal A from both conditions individually."
+  },
+  {
+    "t_start": 810,
+    "t_end": 840,
+    "node_id": "nat-deduction",
+    "text": "My advice: always do all the copying and pasting for a rule completely before finishing easy branches, so you don't forget to copy something and leave a broken branch later."
+  },
+  {
+    "t_start": 840,
+    "t_end": 870,
+    "node_id": "axiom-gamma",
+    "text": "Let's finish the left subproof: how do we prove A from assumptions A or (A and B), A? Directly by the Axiom rule! Because Axiom includes Gamma, we don't even need Weakening here."
+  },
+  {
+    "t_start": 870,
+    "t_end": 900,
+    "node_id": "axiom-gamma",
+    "text": "Weakening is a confusing rule so I will never set exam questions requiring it. And although the Greek letter Gamma and horizontal bars look frightening, Gamma just means any list of formulas, including empty."
+  },
+  {
+    "t_start": 900,
+    "t_end": 930,
+    "node_id": "axiom-gamma",
+    "text": "Stating the Axiom rule with Gamma (Γ, A ⊢ A) lets any unused extra assumptions sit harmlessly in the list while Axiom picks out A."
+  },
+  {
+    "t_start": 930,
+    "t_end": 960,
+    "node_id": "weakening",
+    "text": "Question from the room on Weakening: suppose you complete two subparts of a proof separately, and you can't plug them together because the combining rule says both Gammas must be identical."
+  },
+  {
+    "t_start": 960,
+    "t_end": 990,
+    "node_id": "weakening",
+    "text": "Weakening lets you insert the missing extra assumptions into both branches right at the end so their Gammas match—meaning you never have to redo your whole proof from scratch."
+  },
+  {
+    "t_start": 990,
+    "t_end": 1020,
+    "node_id": "weakening",
+    "text": "That's mainly for a few hard extension exercises—if you haven't noticed yourself annoyed by mismatched Gammas yet, you can safely ignore the Weakening rule."
+  },
+  {
+    "t_start": 1020,
+    "t_end": 1050,
+    "node_id": "axiom-gamma",
+    "text": "Another question on the Axiom rule: can we copy just part of an assumption? No—Axiom applies ONLY when the formula on the right of the sideways T is an entire comma-separated item on the left."
+  },
+  {
+    "t_start": 1050,
+    "t_end": 1080,
+    "node_id": "axiom-gamma",
+    "text": "You couldn't extract B or an A locked deep inside another formula using Axiom; you may only copy a standalone comma-separated item in its entirety."
+  },
+  {
+    "t_start": 1080,
+    "t_end": 1110,
+    "node_id": "and-elim",
+    "text": "Now look at our final right-hand subproof: A or (A and B), A and B ⊢ A. Here we CANNOT use the Axiom rule, because standalone A is not one of the elements of the comma-separated list!"
+  },
+  {
+    "t_start": 1110,
+    "t_end": 1140,
+    "node_id": "and-elim",
+    "text": "Realise that in the proof system, the comma behaves differently from AND (∧): the comma separates formulas Axiom may copy, whereas Axiom cannot reach inside A ∧ B to extract its pieces."
+  },
+  {
+    "t_start": 1140,
+    "t_end": 1170,
+    "node_id": "and-elim",
+    "text": "To extract a piece from an AND formula, we must use And-Elimination (∧ Elim)! That's why conjunction elimination appears right at the top when doing the proof backwards."
+  },
+  {
+    "t_start": 1170,
+    "t_end": 1200,
+    "node_id": "and-elim",
+    "text": "Between our two assumptions, A ∧ B is the friendly one with A right under ∧: apply And-Elimination to ask for A ∧ B, which closes immediately by Axiom—and our tautology proof is complete!"
+  }
+]

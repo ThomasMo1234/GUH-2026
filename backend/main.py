@@ -3,17 +3,21 @@
 Run:  uvicorn main:app --reload --port 8000
 """
 import asyncio
+import io
 import json
 import os
 import random
+import re
 import time
 import uuid
 from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from pypdf import PdfReader
 from pydantic import BaseModel
 
 load_dotenv()
@@ -26,7 +30,11 @@ BUCKET = 30          # heatmap bucket size in seconds
 EXPLAIN_WINDOW = 45  # seconds either side of a bookmark sent to the explainer
 QUIZ_LOOKBACK = 180  # seconds of transcript the quiz agent sees
 SELF_QUIZ_COOLDOWN = 3  # seconds a student must wait between "test myself" requests
-DEMO = json.loads((Path(__file__).parent / "demo_transcript.json").read_text())
+BASE_DIR = Path(__file__).parent
+DEMO = json.loads((BASE_DIR / "demo_transcript.json").read_text(encoding="utf-8"))
+LOGIC_AUDIO_DEMO = json.loads((BASE_DIR / "logic_audio_transcript.json").read_text(encoding="utf-8"))
+SAMPLE_AUDIO_PATH = BASE_DIR / "sample_lecture_20m.mp3"
+FALLBACK_AUDIO_PATH = BASE_DIR.parent / "presentation.mp3"
 
 
 # ------------------------------------------------------------------ state
@@ -37,7 +45,7 @@ class Lecture:
         self.started_at = 0.0
         self.ended_elapsed = 0.0
         self.speed = 1.0         # >1 only for fast demo replays
-        self.segments: list[dict] = []   # {t_start, t_end, text}
+        self.segments: list[dict] = []   # {t_start, t_end, text, node_id?}
         self.bookmarks: list[dict] = []  # {student_id, t, simulated, explanation|None}
         self.self_quizzes: dict[str, dict] = {}  # quiz_id -> personal quiz (see self_quiz); only its student sees it
         self.last_self_quiz: dict[str, float] = {}  # student_id -> wall-clock time of their last request
@@ -46,9 +54,23 @@ class Lecture:
         self.explain_lock = asyncio.Lock()
         self.run_id = 0          # bumped whenever a demo replay starts/stops, so an old replay task knows to quit
         self.moments: dict[tuple, dict] = {}  # (start, end, students) -> cached moment summary
+        # Optional Knowledge Graph + Sample Audio Lecture state (never alters existing flow when unused)
+        self.knowledge_graph: dict | None = None
+        self.seen_students: set[str] = set()
+        self.simulated_room_size: int = 0
+        self.audio_mode: bool = False
+        self.audio_pos: float = 0.0
+        self.audio_playing: bool = False
+        self.audio_updated_at: float = 0.0
+        self.max_audio_reached: float = 0.0
+        self.audio_sim_schedule: list[tuple[str, float]] = []
+        self.audio_sim_idx: int = 0
+        self.audio_seg_idx: int = 0
 
     def reset(self) -> None:
-        """Wipe everything from a previous run (and stop any demo replay that is still going)."""
+        """Wipe everything from a previous run (and stop any demo replay that is still going).
+        Note: `knowledge_graph` is intentionally preserved because slides are uploaded before starting!
+        """
         self.run_id += 1
         self.segments.clear()
         self.bookmarks.clear()
@@ -57,11 +79,35 @@ class Lecture:
         self.insights = None
         self.moments.clear()
         self.ended_elapsed = 0.0
+        self.simulated_room_size = 0
+        self.audio_mode = False
+        self.audio_pos = 0.0
+        self.audio_playing = False
+        self.audio_updated_at = 0.0
+        self.max_audio_reached = 0.0
+        self.audio_sim_schedule = []
+        self.audio_sim_idx = 0
+        self.audio_seg_idx = 0
 
-    def elapsed(self) -> float:
+    def playhead(self) -> float:
+        """Current live timestamp into the lecture (used for bookmarks, quizzes, and live clock)."""
+        if self.audio_mode:
+            if self.status == "live" and self.audio_playing:
+                return min(1200.0, self.audio_pos + max(0.0, time.time() - self.audio_updated_at))
+            return self.audio_pos
         if self.status == "live":
             return (time.time() - self.started_at) * self.speed
         return self.ended_elapsed if self.status == "ended" else 0.0
+
+    def elapsed(self) -> float:
+        """Horizon covered so far (keeps scrubbed 20m heatmap bars visible even if rewinding audio)."""
+        if self.audio_mode:
+            return max(self.max_audio_reached, self.playhead())
+        return self.playhead()
+
+    def room_size(self) -> int:
+        real_ids = set(self.seen_students) | {b["student_id"] for b in self.bookmarks if not b["simulated"]}
+        return max(len(real_ids) + self.simulated_room_size, 1 if self.bookmarks else 0)
 
     def text_between(self, t0: float, t1: float) -> str:
         return " ".join(s["text"] for s in self.segments if s["t_end"] >= t0 and s["t_start"] <= t1)
@@ -98,30 +144,145 @@ def mmss(t: float) -> str:
     return f"{t // 60:02d}:{t % 60:02d}"
 
 
+def match_bucket_to_node(lec: Lecture, t0: float, t1: float, bucket_text: str) -> str | None:
+    """Deterministically map a 30s heatmap window to the Knowledge Graph concept node covered then."""
+    kg = lec.knowledge_graph
+    if not kg or not kg.get("nodes"):
+        return None
+    nodes = kg["nodes"]
+    valid_ids = {n["id"] for n in nodes}
+
+    # 1. Explicit segment node_id tag (e.g. from synced 20m Formal Logic audio transcript)
+    overlapping = [s for s in lec.segments if s["t_end"] > t0 and s["t_start"] < t1]
+    for s in overlapping:
+        nid = s.get("node_id")
+        if nid in valid_ids:
+            return nid
+
+    # 2. Keyword + label scoring against window transcript (with light 15s lead-in fallback)
+    haystack = (bucket_text or lec.text_between(max(0.0, t0 - 15), t1)).lower()
+    if not haystack.strip():
+        return None
+
+    best_id: str | None = None
+    best_score = 0
+    hay_words = set(re.findall(r"[a-z0-9]+", haystack))
+    for n in nodes:
+        score = 0
+        for kw in n.get("keywords") or []:
+            kw_l = kw.lower().strip()
+            if kw_l and kw_l in haystack:
+                score += 6 if " " in kw_l else 4
+        lbl_words = [w for w in re.findall(r"[a-z0-9]+", n.get("label", "").lower()) if len(w) > 2]
+        for lw in lbl_words:
+            if lw in hay_words:
+                score += 3
+        sum_words = [w for w in re.findall(r"[a-z0-9]+", n.get("summary", "").lower()) if len(w) > 4]
+        for sw in sum_words:
+            if sw in hay_words:
+                score += 1
+        if n.get("category") == "core":
+            score = max(0, score - 2)  # prefer specific leaf/branch topic over generic root title
+        if score > best_score:
+            best_score = score
+            best_id = n["id"]
+
+    return best_id if best_score >= 3 else None
+
+
 def build_buckets(lec: Lecture) -> list[dict]:
+    if lec.audio_mode:
+        _materialize_audio_progress(lec, lec.elapsed())
     n = int(lec.elapsed() // BUCKET) + 1
     seen: list[set] = [set() for _ in range(n)]
     for b in lec.bookmarks:
         i = int(b["t"] // BUCKET)
         if i < n:
             seen[i].add(b["student_id"])
-    return [
-        {
-            "start": i * BUCKET,
-            "end": (i + 1) * BUCKET,
-            "count": len(seen[i]),
-            "text": lec.text_between(i * BUCKET, (i + 1) * BUCKET),
-        }
-        for i in range(n)
-    ]
+    buckets = []
+    for i in range(n):
+        t0, t1 = i * BUCKET, (i + 1) * BUCKET
+        txt = lec.text_between(t0, t1)
+        buckets.append(
+            {
+                "start": t0,
+                "end": t1,
+                "count": len(seen[i]),
+                "text": txt,
+                "node_id": match_bucket_to_node(lec, t0, t1, txt),
+            }
+        )
+    return buckets
 
 
-def add_segment(lec: Lecture, text: str, t_start: float | None = None, t_end: float | None = None) -> None:
-    now = lec.elapsed() if t_end is None else t_end
+def add_segment(lec: Lecture, text: str, t_start: float | None = None, t_end: float | None = None, node_id: str | None = None) -> None:
+    now = lec.playhead() if t_end is None else t_end
     if t_start is None:
         last_end = lec.segments[-1]["t_end"] if lec.segments else 0.0
         t_start = max(last_end, now - 20)
-    lec.segments.append({"t_start": round(t_start, 1), "t_end": round(now, 1), "text": text.strip()})
+    seg = {"t_start": round(t_start, 1), "t_end": round(now, 1), "text": text.strip()}
+    if node_id:
+        seg["node_id"] = node_id
+    lec.segments.append(seg)
+
+
+def _build_logic_sim_schedule(seed: bool) -> list[tuple[str, float]]:
+    """Realistic simulated confusion clusters across the 20-minute Formal Logic audio lecture."""
+    if not seed:
+        return []
+    rng = random.Random(11120)
+    events: list[tuple[str, float]] = []
+    # Cluster 1 (02:00-02:30): empty left-hand side of turnstile ⊢
+    for i in range(5):
+        events.append((f"sim-s{i}", rng.uniform(122, 148)))
+    # Cluster 2 (05:00-05:30): Implication Introduction backwards
+    for i in range(6):
+        events.append((f"sim-s{i+3}", rng.uniform(302, 328)))
+    # Cluster 3 (06:30-07:00): atomic A on right -> must be Elimination rule
+    for i in range(7):
+        events.append((f"sim-s{i+6}", rng.uniform(392, 418)))
+    # Peak Spike #1 (08:30-09:00): Or-Elimination 3-premise rule (15 of 32 = 47% of room!)
+    for i in range(15):
+        events.append((f"sim-s{i}", rng.uniform(512, 538)))
+    # Follow-up on Or-Elim (12:30-13:00): copying goal A to both upper branches
+    for i in range(8):
+        events.append((f"sim-s{i+10}", rng.uniform(752, 778)))
+    # Cluster 4 (14:30-15:00): Greek letter Gamma (Γ) & Weakening
+    for i in range(9):
+        events.append((f"sim-s{i+14}", rng.uniform(872, 898)))
+    # Peak Spike #2 near 20th minute (18:30-19:00): Comma (,) vs ∧ & And-Elimination (14 of 32 = 44% of room!)
+    for i in range(14):
+        events.append((f"sim-s{i+16}", rng.uniform(1112, 1138)))
+    # Closing branch (19:00-19:30): applying ∧-Elim backwards
+    for i in range(6):
+        events.append((f"sim-s{i+22}", rng.uniform(1142, 1168)))
+    events.sort(key=lambda pair: pair[1])
+    return events
+
+
+def _materialize_audio_progress(lec: Lecture, up_to: float) -> bool:
+    """Reveal all 20m audio transcript segments and scheduled simulated bookmarks up to `up_to` seconds."""
+    changed = False
+    lec.max_audio_reached = max(lec.max_audio_reached, min(1200.0, up_to))
+    horizon = lec.max_audio_reached
+
+    while lec.audio_seg_idx < len(LOGIC_AUDIO_DEMO):
+        seg = LOGIC_AUDIO_DEMO[lec.audio_seg_idx]
+        if seg["t_start"] > horizon:
+            break
+        add_segment(lec, seg["text"], seg["t_start"], seg["t_end"], seg.get("node_id"))
+        lec.audio_seg_idx += 1
+        changed = True
+
+    while lec.audio_sim_idx < len(lec.audio_sim_schedule):
+        sid, t_mark = lec.audio_sim_schedule[lec.audio_sim_idx]
+        if t_mark > horizon:
+            break
+        lec.bookmarks.append({"student_id": sid, "t": round(t_mark, 1), "simulated": True, "explanation": None})
+        lec.audio_sim_idx += 1
+        changed = True
+
+    return changed
 
 
 # ----------------------------------------------------------------- models
@@ -153,10 +314,35 @@ class MomentIn(BaseModel):
     end: float               # heatmap bucket end
 
 
+class SlidePresetIn(BaseModel):
+    preset: str = "logic"    # "logic" | "hashtables" | "dijkstra"
+
+
+class AudioDemoStartIn(BaseModel):
+    seed: bool = True
+    auto_load_graph: bool = True
+    initial_time: float = 0.0
+    playing: bool = True
+
+
+class AudioSyncIn(BaseModel):
+    current_time: float
+    playing: bool = False
+
+
 # ---------------------------------------------------------------- routes
 @app.get("/api/health")
 async def health():
     return {"ok": True, "mock_ai": agents.MOCK, "has_elevenlabs_key": bool(os.getenv("ELEVENLABS_API_KEY"))}
+
+
+@app.get("/api/sample-audio")
+async def sample_audio():
+    """Streams the 20-minute Formal Logic lecture audio chunk (supports HTTP Range seeking)."""
+    target = SAMPLE_AUDIO_PATH if SAMPLE_AUDIO_PATH.exists() else FALLBACK_AUDIO_PATH
+    if not target.exists():
+        raise HTTPException(404, "sample lecture audio file not found")
+    return FileResponse(target, media_type="audio/mpeg", filename="sample_lecture_20m.mp3")
 
 
 @app.get("/api/scribe-token")
@@ -182,6 +368,101 @@ async def create_lecture():
     return {"id": lid}
 
 
+@app.post("/api/lectures/{lid}/slides")
+async def upload_slides(lid: str, file: UploadFile = File(...)):
+    """Optional professor PDF/slide upload: extracts slide text and builds a React Flow Knowledge Graph."""
+    lec = get_lecture(lid)
+    filename = file.filename or "slides.pdf"
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "uploaded file is empty")
+
+    extracted_parts: list[str] = []
+    if filename.lower().endswith(".pdf") or raw[:4] == b"%PDF":
+        try:
+            reader = PdfReader(io.BytesIO(raw))
+            for idx, page in enumerate(reader.pages[:80]):
+                txt = (page.extract_text() or "").strip()
+                if txt:
+                    extracted_parts.append(f"--- Slide {idx + 1} ---\n{txt}")
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(400, f"could not read PDF slides: {e}")
+    else:
+        extracted_parts.append(raw.decode("utf-8", errors="ignore"))
+
+    slide_text = "\n\n".join(extracted_parts).strip()
+    if not slide_text:
+        raise HTTPException(400, "no readable text found in uploaded slides")
+
+    try:
+        kg = await agents.build_knowledge_graph(slide_text, filename)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"knowledge graph builder failed: {e}")
+
+    lec.knowledge_graph = kg
+    await notify(lec)
+    return kg
+
+
+@app.post("/api/lectures/{lid}/slides/preset")
+async def load_slide_preset(lid: str, body: SlidePresetIn):
+    """One-click sample slide deck loader for quick demos."""
+    lec = get_lecture(lid)
+    p = body.preset.lower().strip()
+    if p == "hashtables":
+        lec.knowledge_graph = agents.preset_hashtables_graph()
+    elif p == "dijkstra":
+        lec.knowledge_graph = agents.preset_dijkstra_graph()
+    else:
+        lec.knowledge_graph = agents.preset_logic_graph("111_chapter3_logic (1).pdf")
+    await notify(lec)
+    return lec.knowledge_graph
+
+
+@app.delete("/api/lectures/{lid}/slides")
+async def clear_slides(lid: str):
+    lec = get_lecture(lid)
+    lec.knowledge_graph = None
+    await notify(lec)
+    return {"ok": True}
+
+
+@app.post("/api/lectures/{lid}/audio-demo/start")
+async def start_audio_demo(lid: str, body: AudioDemoStartIn):
+    """Starts the optional 20-minute Formal Logic audio lecture synced with real transcripts & slides."""
+    lec = get_lecture(lid)
+    if body.auto_load_graph and lec.knowledge_graph is None:
+        lec.knowledge_graph = agents.preset_logic_graph("111_chapter3_logic (1).pdf")
+    lec.reset()
+    lec.status = "live"
+    lec.started_at = time.time()
+    lec.speed = 1.0
+    lec.audio_mode = True
+    lec.audio_pos = max(0.0, min(1200.0, body.initial_time))
+    lec.audio_playing = body.playing
+    lec.audio_updated_at = time.time()
+    lec.simulated_room_size = 32 if body.seed else 0
+    lec.audio_sim_schedule = _build_logic_sim_schedule(body.seed)
+    _materialize_audio_progress(lec, max(lec.audio_pos, 1.0))
+    await notify(lec)
+    return {"ok": True, "knowledge_graph": lec.knowledge_graph}
+
+
+@app.post("/api/lectures/{lid}/audio-demo/sync")
+async def sync_audio_demo(lid: str, body: AudioSyncIn):
+    """Syncs backend transcript & simulated student bookmarks to the HTML5 <audio> playhead / scrubber."""
+    lec = get_lecture(lid)
+    if not lec.audio_mode:
+        return {"ok": False}
+    lec.audio_pos = max(0.0, min(1200.0, body.current_time))
+    lec.audio_playing = body.playing and lec.status == "live"
+    lec.audio_updated_at = time.time()
+    changed = _materialize_audio_progress(lec, lec.audio_pos)
+    if changed:
+        await notify(lec)
+    return {"ok": True, "elapsed": lec.elapsed(), "playhead": lec.playhead()}
+
+
 @app.post("/api/lectures/{lid}/start")
 async def start_lecture(lid: str):
     lec = get_lecture(lid)
@@ -195,6 +476,10 @@ async def start_lecture(lid: str):
 async def end_lecture(lid: str):
     lec = get_lecture(lid)
     if lec.status == "live":
+        if lec.audio_mode:
+            _materialize_audio_progress(lec, lec.elapsed())
+            lec.audio_pos = lec.playhead()
+            lec.audio_playing = False
         lec.ended_elapsed = lec.elapsed()
         lec.status = "ended"
         lec.run_id += 1  # stops a demo replay that is still running
@@ -207,7 +492,7 @@ async def post_segment(lid: str, body: SegmentIn):
     lec = get_lecture(lid)
     if lec.status != "live" or not body.text.strip():
         return {"ok": False}
-    if lec.segments and lec.segments[-1]["text"] == body.text.strip() and lec.elapsed() - lec.segments[-1]["t_end"] < 3 * lec.speed:
+    if lec.segments and lec.segments[-1]["text"] == body.text.strip() and lec.playhead() - lec.segments[-1]["t_end"] < 3 * lec.speed:
         return {"ok": False}  # duplicate delivery of the same sentence
     add_segment(lec, body.text)
     await notify(lec)
@@ -219,10 +504,12 @@ async def post_bookmark(lid: str, body: BookmarkIn):
     lec = get_lecture(lid)
     if lec.status != "live":
         raise HTTPException(409, "lecture is not live")
-    t = lec.elapsed()
+    if body.student_id:
+        lec.seen_students.add(body.student_id)
+    t = lec.playhead()
     mine = [b for b in lec.bookmarks if b["student_id"] == body.student_id]
     # a nervous double-tap should not count twice
-    if mine and t - mine[-1]["t"] < 15:
+    if mine and abs(t - mine[-1]["t"]) < 15:
         return {"t": mine[-1]["t"], "count": len(mine), "duplicate": True}
     lec.bookmarks.append({"student_id": body.student_id, "t": t, "simulated": False, "explanation": None})
     await notify(lec)
@@ -235,9 +522,13 @@ async def self_quiz(lid: str, body: SelfQuizIn):
     lec = get_lecture(lid)
     if lec.status == "waiting":
         raise HTTPException(409, "the lecture hasn't started yet")
+    if body.student_id:
+        lec.seen_students.add(body.student_id)
     if time.time() - lec.last_self_quiz.get(body.student_id, 0.0) < SELF_QUIZ_COOLDOWN:
         raise HTTPException(429, "one moment, still writing your last question")
-    now = lec.elapsed()
+    if lec.audio_mode:
+        _materialize_audio_progress(lec, lec.playhead())
+    now = lec.playhead() or lec.elapsed()
     text = lec.text_between(now - QUIZ_LOOKBACK, now)
     if not text.strip():
         raise HTTPException(400, "nothing has been said yet, try again in a moment")
@@ -306,23 +597,31 @@ def self_check_stats(lec: Lecture) -> dict:
 async def public_state(lid: str, student_id: str = ""):
     """What a student's phone needs."""
     lec = get_lecture(lid)
+    if student_id:
+        lec.seen_students.add(student_id)
     mine = sum(1 for b in lec.bookmarks if b["student_id"] == student_id)
-    return {"id": lec.id, "status": lec.status, "elapsed": lec.elapsed(), "my_bookmarks": mine}
+    return {"id": lec.id, "status": lec.status, "elapsed": lec.playhead(), "my_bookmarks": mine}
 
 
 @app.get("/api/lectures/{lid}/state")
 async def lecturer_state(lid: str):
     lec = get_lecture(lid)
+    buckets = build_buckets(lec)
     return {
         "id": lec.id,
         "status": lec.status,
-        "elapsed": lec.elapsed(),
-        "speed": lec.speed,
+        "elapsed": lec.playhead(),
+        "horizon": lec.elapsed(),
+        "speed": 0.0 if (lec.audio_mode and not lec.audio_playing) else lec.speed,
         "segments": lec.segments[-60:],
-        "buckets": build_buckets(lec),
+        "buckets": buckets,
         "bookmarks_total": len(lec.bookmarks),
         "simulated_total": sum(1 for b in lec.bookmarks if b["simulated"]),
+        "room_size": lec.room_size(),
         "self_checks": self_check_stats(lec),
+        "knowledge_graph": lec.knowledge_graph,
+        "audio_mode": lec.audio_mode,
+        "audio_playing": lec.audio_playing,
     }
 
 
@@ -408,6 +707,7 @@ async def start_demo(lid: str, body: DemoIn):
     lec = get_lecture(lid)
     lec.reset()  # also bumps run_id, which makes any earlier replay task stop (that was the duplicate-lines bug)
     lec.status, lec.started_at, lec.speed = "live", time.time(), max(0.5, body.speed)
+    lec.simulated_room_size = 24 if body.seed else 0
     asyncio.create_task(_replay(lec, body.seed, lec.run_id))
     await notify(lec)
     return {"ok": True}
