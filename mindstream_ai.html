@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MindStream AI - Smart Lecture Assistant</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        dark: {
+                            900: '#0a0f1d',
+                            800: '#111827',
+                            700: '#1f293d',
+                            600: '#374151',
+                        },
+                        brand: {
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            400: '#818cf8',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Google Inter Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .glass {
+            background: rgba(17, 24, 39, 0.75);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .glass-card {
+            background: rgba(31, 41, 61, 0.5);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 15px rgba(99, 102, 241, 0.4); }
+            50% { box-shadow: 0 0 30px rgba(99, 102, 241, 0.8); }
+        }
+        .pulse-glow { animation: pulse-glow 3s infinite; }
+        @keyframes wave {
+            0%, 100% { height: 8px; }
+            50% { height: 36px; }
+        }
+        .wave-bar { animation: wave 1.2s ease-in-out infinite; }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #0a0f1d; }
+        ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #4f46e5; }
+    </style>
+</head>
+<body class="bg-dark-900 text-gray-100 min-h-screen flex flex-col selection:bg-indigo-500 selection:text-white">
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="fixed bottom-6 right-6 z-50 flex flex-col space-y-3 pointer-events-none"></div>
+
+    <!-- API Key Modal -->
+    <div id="api-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm hidden">
+        <div class="glass max-w-md w-full mx-4 rounded-2xl p-6 shadow-2xl border border-indigo-500/20">
+            <div class="flex justify-between items-center mb-4">
+                <div class="flex items-center space-x-2">
+                    <div class="p-2 bg-indigo-500/20 text-indigo-400 rounded-lg">
+                        <i data-lucide="key" class="w-5 h-5"></i>
+                    </div>
+                    <h3 class="text-lg font-semibold text-white">Gemini API Key Configuration</h3>
+                </div>
+                <button onclick="toggleApiModal(false)" class="text-gray-400 hover:text-white transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <p class="text-sm text-gray-300 mb-4">
+                Enter your Gemini API key to enable live AI lecture explanations, smart quizzes, and personalized study summaries. If left blank, simulation mode with smart fallbacks will be used.
+            </p>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-medium text-gray-400 mb-1">API Key</label>
+                    <input type="password" id="api-key-input" placeholder="AIzaSy..." class="w-full bg-dark-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition">
+                </div>
+                <div class="flex justify-end space-x-3 pt-2">
+                    <button onclick="toggleApiModal(false)" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-300 hover:bg-dark-700 transition">Cancel</button>
+                    <button onclick="saveApiKey()" class="px-5 py-2 rounded-lg text-sm font-medium bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-lg shadow-indigo-500/25 transition">Save Key</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bookmark / Lost Note Modal -->
+    <div id="bookmark-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm hidden">
+        <div class="glass max-w-md w-full mx-4 rounded-2xl p-6 shadow-2xl border border-indigo-500/20">
+            <div class="flex justify-between items-center mb-4">
+                <div class="flex items-center space-x-2">
+                    <div class="p-2 bg-amber-500/20 text-amber-400 rounded-lg">
+                        <i data-lucide="bookmark-plus" class="w-5 h-5"></i>
+                    </div>
+                    <h3 class="text-lg font-semibold text-white">Mark Confused Moment</h3>
+                </div>
+                <button onclick="closeBookmarkModal()" class="text-gray-400 hover:text-white transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <p class="text-sm text-gray-300 mb-3">
+                Timestamp captured: <span id="bm-time-display" class="font-mono font-semibold text-indigo-400">00:00</span>
+            </p>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-medium text-gray-400 mb-1">What part did you not understand?</label>
+                    <textarea id="bm-note-input" rows="3" placeholder="e.g., I didn't get how the gradient descent formula calculates partial derivatives here..." class="w-full bg-dark-800 border border-gray-700 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition resize-none"></textarea>
+                </div>
+                <div class="flex justify-end space-x-3 pt-2">
+                    <button onclick="closeBookmarkModal()" class="px-4 py-2 rounded-lg text-sm font-medium text-gray-300 hover:bg-dark-700 transition">Cancel</button>
+                    <button onclick="submitBookmark()" class="px-5 py-2 rounded-lg text-sm font-medium bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-600/25 transition flex items-center space-x-2">
+                        <i data-lucide="bookmark" class="w-4 h-4"></i>
+                        <span>Save & Get AI Explanation Later</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active Quiz Modal -->
+    <div id="quiz-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md hidden">
+        <div class="glass max-w-lg w-full mx-4 rounded-2xl p-6 shadow-2xl border border-indigo-500/30 pulse-glow">
+            <div class="flex justify-between items-center mb-4">
+                <div class="flex items-center space-x-2">
+                    <div class="p-2 bg-indigo-500/20 text-indigo-400 rounded-lg">
+                        <i data-lucide="help-circle" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <span class="text-xs font-semibold text-indigo-400 uppercase tracking-wider">Live Engagement Quiz</span>
+                        <h3 class="text-lg font-bold text-white" id="quiz-title">Quick Comprehension Check</h3>
+                    </div>
+                </div>
+                <div class="text-xs font-mono bg-dark-700 px-2.5 py-1 rounded-full text-gray-300 flex items-center space-x-1">
+                    <i data-lucide="clock" class="w-3.5 h-3.5 text-indigo-400"></i>
+                    <span id="quiz-timer">30s</span>
+                </div>
+            </div>
+            <p class="text-sm text-gray-200 mb-5 bg-dark-800/60 p-3.5 rounded-xl border border-gray-700/50" id="quiz-question">
+                Loading question...
+            </p>
+            <div class="space-y-2.5 mb-6" id="quiz-options">
+                <!-- Dynamically populated options -->
+            </div>
+            <div id="quiz-feedback" class="hidden mb-4 p-3 rounded-xl text-sm font-medium"></div>
+            <div class="flex justify-end">
+                <button id="quiz-submit-btn" onclick="submitQuizAnswer()" disabled class="px-5 py-2.5 rounded-xl text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-lg transition">
+                    Submit Answer
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Header Navigation -->
+    <header class="glass sticky top-0 z-40 border-b border-gray-800">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <!-- Logo & Title -->
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-violet-600 to-pink-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+                    <i data-lucide="brain" class="w-6 h-6 text-white"></i>
+                </div>
+                <div>
+                    <div class="flex items-center space-x-2">
+                        <h1 class="font-bold text-lg text-white tracking-tight">MindStream AI</h1>
+                        <span class="text-[10px] font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-full">v2.5 Live</span>
+                    </div>
+                    <p class="text-xs text-gray-400">Smart Lecture Assistant & Engagement Hub</p>
+                </div>
+            </div>
+
+            <!-- Role Switcher & Actions -->
+            <div class="flex items-center space-x-4">
+                <!-- Role Toggle -->
+                <div class="bg-dark-800 p-1 rounded-xl border border-gray-700/60 flex items-center space-x-1">
+                    <button onclick="switchRole('student')" id="btn-role-student" class="px-3.5 py-1.5 rounded-lg text-xs font-medium transition flex items-center space-x-1.5 bg-indigo-600 text-white shadow">
+                        <i data-lucide="graduation-cap" class="w-3.5 h-3.5"></i>
+                        <span>Student View</span>
+                    </button>
+                    <button onclick="switchRole('lecturer')" id="btn-role-lecturer" class="px-3.5 py-1.5 rounded-lg text-xs font-medium transition flex items-center space-x-1.5 text-gray-400 hover:text-white">
+                        <i data-lucide="presentation" class="w-3.5 h-3.5"></i>
+                        <span>Lecturer View</span>
+                    </button>
+                </div>
+
+                <!-- API Key Settings Button -->
+                <button onclick="toggleApiModal(true)" class="p-2.5 rounded-xl bg-dark-800 hover:bg-dark-700 text-gray-300 hover:text-white border border-gray-700/60 transition relative group" title="API Key Settings">
+                    <i data-lucide="settings" class="w-4 h-4"></i>
+                    <span id="api-status-dot" class="absolute top-2 right-2 w-2 h-2 rounded-full bg-amber-500"></span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+        <!-- ================= STUDENT VIEW ================= -->
+        <div id="view-student" class="space-y-6">
+            
+            <!-- Top Status Bar: Live Lecture Info & Quick Bookmark Button -->
+            <div class="glass-card rounded-2xl p-4 sm:p-5 flex flex-col md:flex-row items-center justify-between gap-4 border border-indigo-500/20">
+                <div class="flex items-center space-x-4 w-full md:w-auto">
+                    <div class="relative flex items-center justify-center">
+                        <span class="absolute w-4 h-4 rounded-full bg-red-500/40 animate-ping"></span>
+                        <div class="w-3 h-3 rounded-full bg-red-500 relative z-10"></div>
+                    </div>
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <h2 class="font-semibold text-white text-base">CS-402: Advanced Neural Networks & Optimization</h2>
+                            <span class="text-xs bg-red-500/20 text-red-400 px-2 py-0.5 rounded font-medium">LIVE</span>
+                        </div>
+                        <p class="text-xs text-gray-400">Dr. Sarah Jenkins • Room 404 • <span id="live-timer" class="font-mono text-gray-300">00:24:15</span> elapsed</p>
+                    </div>
+                </div>
+
+                <div class="flex items-center space-x-3 w-full md:w-auto justify-end">
+                    <button onclick="openBookmarkModal()" class="w-full md:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-semibold text-sm shadow-lg shadow-amber-500/25 flex items-center justify-center space-x-2 transition transform active:scale-95">
+                        <i data-lucide="bookmark-plus" class="w-4 h-4"></i>
+                        <span>I'm Lost / Bookmark This</span>
+                    </button>
+                    <button onclick="triggerSampleQuiz()" class="px-4 py-2.5 rounded-xl bg-dark-700 hover:bg-dark-600 text-indigo-300 hover:text-white font-medium text-sm border border-indigo-500/30 transition flex items-center space-x-1.5">
+                        <i data-lucide="sparkles" class="w-4 h-4"></i>
+                        <span>Test Quiz</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Student Tabs: Live Stream vs. Review Bookmarks -->
+            <div class="flex border-b border-gray-800 space-x-6">
+                <button onclick="switchStudentTab('stream')" id="stab-stream-btn" class="pb-3 text-sm font-semibold border-b-2 border-indigo-500 text-indigo-400 flex items-center space-x-2 transition">
+                    <i data-lucide="radio" class="w-4 h-4"></i>
+                    <span>Live Lecture Stream</span>
+                </button>
+                <button onclick="switchStudentTab('review')" id="stab-review-btn" class="pb-3 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-white flex items-center space-x-2 transition">
+                    <i data-lucide="book-open" class="w-4 h-4"></i>
+                    <span>Review & AI Explanations (<span id="bookmark-count">0</span>)</span>
+                </button>
+            </div>
+
+            <!-- TAB 1: LIVE LECTURE STREAM -->
+            <div id="stab-stream-content" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Left 2 Cols: Audio Waveform & Live Transcript Ticker -->
+                <div class="lg:col-span-2 space-y-6">
+                    <!-- Audio Waveform Simulator Card -->
+                    <div class="glass-card rounded-2xl p-6 relative overflow-hidden">
+                        <div class="absolute top-0 right-0 p-6 opacity-10">
+                            <i data-lucide="mic" class="w-32 h-32 text-indigo-400"></i>
+                        </div>
+                        <div class="flex justify-between items-center mb-6">
+                            <div class="flex items-center space-x-3">
+                                <div class="p-2.5 bg-indigo-600/20 text-indigo-400 rounded-xl">
+                                    <i data-lucide="volume-2" class="w-5 h-5"></i>
+                                </div>
+                                <div>
+                                    <h3 class="text-sm font-semibold text-white">Professor's Audio Feed</h3>
+                                    <p class="text-xs text-gray-400">Real-time transcription & noise cancellation active</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center space-x-1">
+                                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                <span class="text-xs font-mono text-emerald-400">16kHz PCM Live</span>
+                            </div>
+                        </div>
+
+                        <!-- Waveform Bars Animation -->
+                        <div class="h-24 flex items-center justify-center space-x-1.5 my-4 px-4 bg-dark-900/60 rounded-xl border border-gray-800">
+                            <!-- Generated by JS for organic wave -->
+                            <div id="waveform-container" class="flex items-center space-x-1.5 h-full py-4 w-full justify-around"></div>
+                        </div>
+
+                        <!-- Controls -->
+                        <div class="flex items-center justify-between text-xs text-gray-400 pt-2">
+                            <div class="flex items-center space-x-3">
+                                <button onclick="toggleAudioStream()" id="audio-play-btn" class="p-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 transition">
+                                    <i data-lucide="pause" class="w-4 h-4"></i>
+                                </button>
+                                <span id="audio-status-text" class="font-medium text-gray-300">Streaming Audio (Live)</span>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <i data-lucide="volume-1" class="w-4 h-4 text-gray-400"></i>
+                                <input type="range" min="0" max="100" value="80" class="w-24 accent-indigo-500 h-1 bg-gray-700 rounded-lg cursor-pointer">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Live Transcript Ticker -->
+                    <div class="glass-card rounded-2xl p-6">
+                        <div class="flex justify-between items-center mb-4">
+                            <div class="flex items-center space-x-2">
+                                <i data-lucide="file-text" class="w-4 h-4 text-indigo-400"></i>
+                                <h3 class="text-sm font-semibold text-white">Live Speech Transcript Ticker</h3>
+                            </div>
+                            <span class="text-xs text-indigo-400 font-mono bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">Auto-scrolling</span>
+                        </div>
+                        <div id="transcript-box" class="h-60 overflow-y-auto space-y-3 pr-2 font-mono text-xs text-gray-300">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Col: Quick Notes & Active Engagement Sidebar -->
+                <div class="space-y-6">
+                    <!-- Quick Notes Card -->
+                    <div class="glass-card rounded-2xl p-6 flex flex-col justify-between h-full">
+                        <div>
+                            <div class="flex items-center space-x-2 mb-4">
+                                <div class="p-2 bg-indigo-500/20 text-indigo-400 rounded-lg">
+                                    <i data-lucide="edit-3" class="w-5 h-5"></i>
+                                </div>
+                                <h3 class="text-sm font-semibold text-white">Session Quick Notes</h3>
+                            </div>
+                            <p class="text-xs text-gray-400 mb-3">Take notes while listening. These sync with timestamps automatically.</p>
+                            <textarea id="student-scratchpad" rows="8" placeholder="Type notes here..." class="w-full bg-dark-900 border border-gray-700/80 rounded-xl p-3 text-xs text-gray-200 focus:outline-none focus:border-indigo-500 transition resize-none mb-3"></textarea>
+                        </div>
+                        <div class="flex justify-between items-center pt-2 border-t border-gray-800">
+                            <span class="text-[11px] text-gray-500" id="autosave-status">Auto-saved to local</span>
+                            <button onclick="saveScratchpad()" class="px-3 py-1.5 rounded-lg bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 text-xs font-medium transition">Save Notes</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 2: REVIEW & AI EXPLANATIONS -->
+            <div id="stab-review-content" class="hidden space-y-6">
+                <div class="glass-card rounded-2xl p-6">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                        <div>
+                            <h3 class="text-base font-bold text-white flex items-center space-x-2">
+                                <i data-lucide="sparkles" class="w-5 h-5 text-indigo-400"></i>
+                                <span>Your Confused Moments & AI Breakdown</span>
+                            </h3>
+                            <p class="text-xs text-gray-400">Review parts you bookmarked during the lecture and get crystal-clear explanations generated by Gemini AI.</p>
+                        </div>
+                        <button onclick="generateAllAIExplanations()" class="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs font-semibold shadow-lg shadow-indigo-500/25 flex items-center space-x-2 transition">
+                            <i data-lucide="cpu" class="w-4 h-4"></i>
+                            <span>Generate AI Explanations for All</span>
+                        </button>
+                    </div>
+
+                    <!-- Bookmarks List container -->
+                    <div id="bookmarks-list" class="space-y-4">
+                        <!-- Empty state rendered if no bookmarks -->
+                        <div id="empty-bookmarks" class="text-center py-12">
+                            <div class="w-16 h-16 bg-dark-800 rounded-full flex items-center justify-center mx-auto mb-3 text-gray-600">
+                                <i data-lucide="bookmark-check" class="w-8 h-8"></i>
+                            </div>
+                            <h4 class="text-sm font-semibold text-gray-300">No bookmarks yet!</h4>
+                            <p class="text-xs text-gray-500 max-w-sm mx-auto mt-1">Whenever you zone out or get stuck during the lecture, click the "I'm Lost / Bookmark" button to log it here.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- ================= LECTURER VIEW ================= -->
+        <div id="view-lecturer" class="hidden space-y-6">
+            
+            <!-- Lecturer Header Metrics -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="glass-card rounded-2xl p-5 border border-indigo-500/20">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-xs font-medium text-gray-400">Class Focus Score</span>
+                        <div class="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg">
+                            <i data-lucide="trending-up" class="w-4 h-4"></i>
+                        </div>
+                    </div>
+                    <div class="text-2xl font-bold text-white">84.2%</div>
+                    <div class="text-[11px] text-emerald-400 mt-1 flex items-center space-x-1">
+                        <span>+4.5% from last 10 mins</span>
+                    </div>
+                </div>
+
+                <div class="glass-card rounded-2xl p-5 border border-indigo-500/20">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-xs font-medium text-gray-400">Active Students</span>
+                        <div class="p-2 bg-indigo-500/20 text-indigo-400 rounded-lg">
+                            <i data-lucide="users" class="w-4 h-4"></i>
+                        </div>
+                    </div>
+                    <div class="text-2xl font-bold text-white">142</div>
+                    <div class="text-[11px] text-gray-400 mt-1">98% engagement rate</div>
+                </div>
+
+                <div class="glass-card rounded-2xl p-5 border border-indigo-500/20">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-xs font-medium text-gray-400">Total Bookmarks (Lost)</span>
+                        <div class="p-2 bg-amber-500/20 text-amber-400 rounded-lg">
+                            <i data-lucide="alert-circle" class="w-4 h-4"></i>
+                        </div>
+                    </div>
+                    <div class="text-2xl font-bold text-white" id="lecturer-total-bookmarks">0</div>
+                    <div class="text-[11px] text-amber-400 mt-1">Requires review on heatmap</div>
+                </div>
+
+                <div class="glass-card rounded-2xl p-5 border border-indigo-500/20">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-xs font-medium text-gray-400">Quiz Avg Score</span>
+                        <div class="p-2 bg-violet-500/20 text-violet-400 rounded-lg">
+                            <i data-lucide="award" class="w-4 h-4"></i>
+                        </div>
+                    </div>
+                    <div class="text-2xl font-bold text-white">91.6%</div>
+                    <div class="text-[11px] text-violet-400 mt-1">Based on 3 pop quizzes</div>
+                </div>
+            </div>
+
+            <!-- Heatmap Timeline Section -->
+            <div class="glass-card rounded-2xl p-6">
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                    <div>
+                        <h3 class="text-base font-bold text-white flex items-center space-x-2">
+                            <i data-lucide="activity" class="w-5 h-5 text-indigo-400"></i>
+                            <span>Student Confusion Heatmap Timeline</span>
+                        </h3>
+                        <p class="text-xs text-gray-400">Interactive timeline of the lecture. Higher spikes and orange/red bars indicate timestamps where multiple students clicked "I'm Lost".</p>
+                    </div>
+                    <div class="flex items-center space-x-3">
+                        <button onclick="triggerSampleQuiz()" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-500/25 flex items-center space-x-2 transition">
+                            <i data-lucide="zap" class="w-4 h-4"></i>
+                            <span>Broadcast Quiz Now</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Interactive Heatmap Bar Container -->
+                <div class="bg-dark-900/80 rounded-xl p-5 border border-gray-800">
+                    <div class="flex justify-between text-xs text-gray-400 mb-2 font-mono">
+                        <span>00:00 (Start)</span>
+                        <span>10:00</span>
+                        <span>20:00</span>
+                        <span>30:00</span>
+                        <span>40:00 (Current)</span>
+                    </div>
+
+                    <!-- Heatmap visual timeline bars -->
+                    <div id="heatmap-timeline-bars" class="h-28 flex items-end justify-between gap-1 py-2 px-1 bg-dark-800/40 rounded-lg border border-gray-800">
+                        <!-- Populated by JS -->
+                    </div>
+
+                    <div class="flex items-center justify-between mt-4 text-xs text-gray-400 pt-2 border-t border-gray-800">
+                        <div class="flex items-center space-x-4">
+                            <div class="flex items-center space-x-1.5"><span class="w-3 h-3 rounded bg-indigo-500/40"></span><span>Normal Pace</span></div>
+                            <div class="flex items-center space-x-1.5"><span class="w-3 h-3 rounded bg-amber-500"></span><span>Moderate Confusion</span></div>
+                            <div class="flex items-center space-x-1.5"><span class="w-3 h-3 rounded bg-red-500"></span><span>High Confusion Peak</span></div>
+                        </div>
+                        <span id="heatmap-selected-info" class="font-medium text-gray-300">Hover or click timeline bars for details</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Student Bookmarks & AI Lecturer Insights Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Lecturer Student Bookmarks Log -->
+                <div class="glass-card rounded-2xl p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-sm font-semibold text-white flex items-center space-x-2">
+                            <i data-lucide="list-filter" class="w-4 h-4 text-indigo-400"></i>
+                            <span>Student Bookmark Log & Notes</span>
+                        </h3>
+                        <span class="text-xs text-gray-400 font-mono" id="lecturer-bm-count">0 items</span>
+                    </div>
+                    <div id="lecturer-bookmarks-list" class="space-y-3 max-h-96 overflow-y-auto pr-2">
+                        <div class="text-center py-8 text-gray-500 text-xs">No student flags recorded yet.</div>
+                    </div>
+                </div>
+
+                <!-- AI Lecture Pacing & Topic Recommendations -->
+                <div class="glass-card rounded-2xl p-6 flex flex-col justify-between">
+                    <div>
+                        <div class="flex items-center space-x-2 mb-4">
+                            <div class="p-2 bg-indigo-500/20 text-indigo-400 rounded-lg">
+                                <i data-lucide="sparkles" class="w-5 h-5"></i>
+                            </div>
+                            <h3 class="text-sm font-semibold text-white">AI Lecturer Coach & Recommendations</h3>
+                        </div>
+                        <p class="text-xs text-gray-400 mb-4">Based on student bookmark clusters around minute 14:20, Gemini AI suggests:</p>
+                        
+                        <div class="space-y-3">
+                            <div class="p-3.5 bg-dark-900/60 rounded-xl border border-indigo-500/20">
+                                <div class="flex items-center space-x-2 mb-1">
+                                    <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                                    <h4 class="text-xs font-semibold text-white">Concept to Re-explain: Backpropagation Chain Rule</h4>
+                                </div>
+                                <p class="text-xs text-gray-300 pl-4">18 students flagged this moment. Consider providing a visual diagram of matrix dimensions before moving to optimizer algorithms.</p>
+                            </div>
+
+                            <div class="p-3.5 bg-dark-900/60 rounded-xl border border-indigo-500/20">
+                                <div class="flex items-center space-x-2 mb-1">
+                                    <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                                    <h4 class="text-xs font-semibold text-white">Pacing Insight</h4>
+                                </div>
+                                <p class="text-xs text-gray-300 pl-4">Class attention peaked during the live code demonstration at min 08:00. Maintain similar interactive segments.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="pt-4 mt-4 border-t border-gray-800 flex justify-end">
+                        <button onclick="showToast('AI Summary report sent to lecturer email.', 'success')" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition flex items-center space-x-2">
+                            <i data-lucide="send" class="w-3.5 h-3.5"></i>
+                            <span>Export AI Class Report</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="glass border-t border-gray-800 mt-12 py-6 text-center text-xs text-gray-500">
+        <p>MindStream AI Smart Lecture Assistant • Powered by Gemini 3 Flash & Web Audio API</p>
+    </footer>
+
+    <!-- JavaScript Application Logic -->
+    <script>
+        // --- State Management ---
+        let currentRole = 'student';
+        let currentStudentTab = 'stream';
+        let apiKey = localStorage.getItem('mindstream_gemini_key') || '';
+        let lectureTimeSeconds = 1455; // 24:15
+        let isAudioPlaying = true;
+        let bookmarks = JSON.parse(localStorage.getItem('mindstream_bookmarks') || '[]');
+        let scratchpadText = localStorage.getItem('mindstream_scratchpad') || '';
+
+        // Sample lecture transcript data for realistic ticker
+        const transcriptLines = [
+            { time: "00:02", speaker: "Dr. Jenkins", text: "Good morning everyone. Today we are diving into advanced backpropagation and computational graphs in deep neural networks." },
+            { time: "05:12", speaker: "Dr. Jenkins", text: "Notice how the chain rule allows us to compute gradients layer by layer without calculating exponential combinations." },
+            { time: "11:30", speaker: "Dr. Jenkins", text: "When we introduce momentum to stochastic gradient descent, oscillations along steep ravines start to dampen significantly." },
+            { time: "14:20", speaker: "Dr. Jenkins", text: "Let's examine the partial derivative of the loss function with respect to weight matrix W_2..." },
+            { time: "19:45", speaker: "Dr. Jenkins", text: "Are there any questions about how vanishing gradients occur in deep recurrent architectures?" },
+            { time: "24:00", speaker: "Dr. Jenkins", text: "Now let's transition to transformer attention mechanisms and scaled dot-product computation." }
+        ];
+
+        // Sample Quizzes
+        const sampleQuizzes = [
+            {
+                id: 1,
+                title: "Comprehension Check #1",
+                question: "What is the primary benefit of adding momentum to stochastic gradient descent (SGD)?",
+                options: [
+                    "It increases the learning rate indefinitely",
+                    "It dampens oscillations along steep ravines and speeds up convergence",
+                    "It eliminates the need for any activation function",
+                    "It converts neural networks into linear regression models"
+                ],
+                correct: 1
+            },
+            {
+                id: 2,
+                title: "Comprehension Check #2",
+                question: "In backpropagation, what mathematical rule is repeatedly applied to compute gradients across composite layers?",
+                options: [
+                    "The Chain Rule",
+                    "The Quadratic Formula",
+                    "L'Hopital's Rule",
+                    "Integration by Parts"
+                ],
+                correct: 0
+            }
+        ];
+
+        let activeQuiz = null;
+        let selectedQuizOption = null;
+        let quizTimerInterval = null;
+        let quizTimeRemaining = 30;
+
+        // --- Initialization ---
+        window.onload = function() {
+            // Check API Key
+            if (apiKey) {
+                document.getElementById('api-status-dot').classList.remove('bg-amber-500');
+                document.getElementById('api-status-dot').classList.add('bg-emerald-500');
+                document.getElementById('api-key-input').value = apiKey;
+            }
+
+            // Render UI
+            renderWaveformBars();
+            renderTranscript();
+            renderBookmarks();
+            renderHeatmapBars();
+            updateBookmarkCount();
+
+            // Setup Scratchpad
+            document.getElementById('student-scratchpad').value = scratchpadText;
+            document.getElementById('student-scratchpad').addEventListener('input', (e) => {
+                localStorage.setItem('mindstream_scratchpad', e.target.value);
+                document.getElementById('autosave-status').textContent = 'Saved just now';
+                setTimeout(() => {
+                    document.getElementById('autosave-status').textContent = 'Auto-saved to local';
+                }, 2000);
+            });
+
+            // Start Live Lecture Timer
+            setInterval(() => {
+                if (isAudioPlaying) {
+                    lectureTimeSeconds++;
+                    const mins = Math.floor(lectureTimeSeconds / 60);
+                    const secs = lectureTimeSeconds % 60;
+                    const timeStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+                    document.getElementById('live-timer').textContent = `00:${timeStr}`;
+                }
+            }, 1000);
+
+            lucide.createIcons();
+        };
+
+        // --- Role Switching ---
+        function switchRole(role) {
+            currentRole = role;
+            const studentBtn = document.getElementById('btn-role-student');
+            const lecturerBtn = document.getElementById('btn-role-lecturer');
+            const studentView = document.getElementById('view-student');
+            const lecturerView = document.getElementById('view-lecturer');
+
+            if (role === 'student') {
+                studentBtn.className = "px-3.5 py-1.5 rounded-lg text-xs font-medium transition flex items-center space-x-1.5 bg-indigo-600 text-white shadow";
+                lecturerBtn.className = "px-3.5 py-1.5 rounded-lg text-xs font-medium transition flex items-center space-x-1.5 text-gray-400 hover:text-white";
+                studentView.classList.remove('hidden');
+                lecturerView.classList.add('hidden');
+            } else {
+                lecturerBtn.className = "px-3.5 py-1.5 rounded-lg text-xs font-medium transition flex items-center space-x-1.5 bg-indigo-600 text-white shadow";
+                studentBtn.className = "px-3.5 py-1.5 rounded-lg text-xs font-medium transition flex items-center space-x-1.5 text-gray-400 hover:text-white";
+                lecturerView.classList.remove('hidden');
+                studentView.classList.add('hidden');
+                renderLecturerBookmarks();
+                renderHeatmapBars();
+            }
+            lucide.createIcons();
+        }
+
+        // --- Student Tabs ---
+        function switchStudentTab(tab) {
+            currentStudentTab = tab;
+            const streamBtn = document.getElementById('stab-stream-btn');
+            const reviewBtn = document.getElementById('stab-review-btn');
+            const streamContent = document.getElementById('stab-stream-content');
+            const reviewContent = document.getElementById('stab-review-content');
+
+            if (tab === 'stream') {
+                streamBtn.className = "pb-3 text-sm font-semibold border-b-2 border-indigo-500 text-indigo-400 flex items-center space-x-2 transition";
+                reviewBtn.className = "pb-3 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-white flex items-center space-x-2 transition";
+                streamContent.classList.remove('hidden');
+                reviewContent.classList.add('hidden');
+            } else {
+                reviewBtn.className = "pb-3 text-sm font-semibold border-b-2 border-indigo-500 text-indigo-400 flex items-center space-x-2 transition";
+                streamBtn.className = "pb-3 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-white flex items-center space-x-2 transition";
+                reviewContent.classList.remove('hidden');
+                streamContent.classList.add('hidden');
+                renderBookmarks();
+            }
+            lucide.createIcons();
+        }
+
+        // --- API Modal & Key Management ---
+        function toggleApiModal(show) {
+            const modal = document.getElementById('api-modal');
+            if (show) modal.classList.remove('hidden');
+            else modal.classList.add('hidden');
+        }
+
+        function saveApiKey() {
+            const keyInput = document.getElementById('api-key-input').value.trim();
+            apiKey = keyInput;
+            localStorage.setItem('mindstream_gemini_key', apiKey);
+            toggleApiModal(false);
+
+            if (apiKey) {
+                document.getElementById('api-status-dot').classList.remove('bg-amber-500');
+                document.getElementById('api-status-dot').classList.add('bg-emerald-500');
+                showToast('Gemini API Key saved successfully!', 'success');
+            } else {
+                document.getElementById('api-status-dot').classList.remove('bg-emerald-500');
+                document.getElementById('api-status-dot').classList.add('bg-amber-500');
+                showToast('API Key cleared. Using fallback simulation.', 'info');
+            }
+        }
+
+        // --- Waveform Rendering ---
+        function renderWaveformBars() {
+            const container = document.getElementById('waveform-container');
+            let html = '';
+            for (let i = 0; i < 48; i++) {
+                const heightPct = Math.floor(Math.random() * 70) + 20;
+                const delay = (i * 0.05).toFixed(2);
+                html += `<div class="w-1.5 bg-indigo-500/80 rounded-full wave-bar" style="height: ${heightPct}%; animation-delay: ${delay}s;"></div>`;
+            }
+            container.innerHTML = html;
+        }
+
+        // --- Transcript Rendering ---
+        function renderTranscript() {
+            const box = document.getElementById('transcript-box');
+            let html = '';
+            transcriptLines.forEach(item => {
+                html += `
+                    <div class="p-2.5 rounded-xl bg-dark-800/60 border border-gray-800 flex items-start space-x-3">
+                        <span class="text-indigo-400 font-semibold text-[11px] bg-indigo-500/10 px-2 py-0.5 rounded">${item.time}</span>
+                        <div>
+                            <span class="text-gray-400 font-bold text-[11px]">${item.speaker}:</span>
+                            <p class="text-gray-200 mt-0.5">${item.text}</p>
+                        </div>
+                    </div>
+                `;
+            });
+            box.innerHTML = html;
+            box.scrollTop = box.scrollHeight;
+        }
+
+        // --- Bookmark Modal & Handling ---
+        function openBookmarkModal() {
+            const mins = Math.floor(lectureTimeSeconds / 60);
+            const secs = lectureTimeSeconds % 60;
+            const timeStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+            document.getElementById('bm-time-display').textContent = `00:${timeStr}`;
+            document.getElementById('bm-note-input').value = '';
+            document.getElementById('bookmark-modal').classList.remove('hidden');
+        }
+
+        function closeBookmarkModal() {
+            document.getElementById('bookmark-modal').classList.add('hidden');
+        }
+
+        function submitBookmark() {
+            const note = document.getElementById('bm-note-input').value.trim() || 'No specific note added.';
+            const mins = Math.floor(lectureTimeSeconds / 60);
+            const secs = lectureTimeSeconds % 60;
+            const timeStr = `00:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+
+            const newBookmark = {
+                id: Date.now(),
+                timestamp: timeStr,
+                timeSeconds: lectureTimeSeconds,
+                note: note,
+                context: "Discussion on backpropagation gradients & weight updates.",
+                aiExplanation: null
+            };
+
+            bookmarks.push(newBookmark);
+            localStorage.setItem('mindstream_bookmarks', JSON.stringify(bookmarks));
+            closeBookmarkModal();
+            updateBookmarkCount();
+            showToast('Moment bookmarked successfully! AI review ready.', 'success');
+        }
+
+        function updateBookmarkCount() {
+            document.getElementById('bookmark-count').textContent = bookmarks.length;
+            document.getElementById('lecturer-total-bookmarks').textContent = bookmarks.length;
+            document.getElementById('lecturer-bm-count').textContent = `${bookmarks.length} items`;
+            renderHeatmapBars();
+        }
+
+        function renderBookmarks() {
+            const listEl = document.getElementById('bookmarks-list');
+            if (bookmarks.length === 0) {
+                listEl.innerHTML = `
+                    <div id="empty-bookmarks" class="text-center py-12">
+                        <div class="w-16 h-16 bg-dark-800 rounded-full flex items-center justify-center mx-auto mb-3 text-gray-600">
+                            <i data-lucide="bookmark-check" class="w-8 h-8"></i>
+                        </div>
+                        <h4 class="text-sm font-semibold text-gray-300">No bookmarks yet!</h4>
+                        <p class="text-xs text-gray-500 max-w-sm mx-auto mt-1">Whenever you zone out or get stuck during the lecture, click the "I'm Lost / Bookmark" button to log it here.</p>
+                    </div>
+                `;
+                lucide.createIcons();
+                return;
+            }
+
+            let html = '';
+            bookmarks.forEach(bm => {
+                html += `
+                    <div class="glass-card rounded-2xl p-5 border border-indigo-500/20 space-y-3">
+                        <div class="flex justify-between items-start">
+                            <div class="flex items-center space-x-2">
+                                <span class="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-400 font-mono text-xs font-semibold">${bm.timestamp}</span>
+                                <span class="text-xs text-gray-400">Lecture Segment #4</span>
+                            </div>
+                            <button onclick="deleteBookmark(${bm.id})" class="text-gray-500 hover:text-red-400 transition" title="Delete bookmark">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                        <div class="text-xs bg-dark-900/60 p-3 rounded-xl border border-gray-800">
+                            <strong class="text-gray-300">Your Note:</strong> <span class="text-gray-200">${bm.note}</span>
+                        </div>
+                        ${bm.aiExplanation ? `
+                            <div class="p-4 rounded-xl bg-indigo-950/40 border border-indigo-500/30 space-y-2">
+                                <div class="flex items-center space-x-2 text-indigo-400 font-semibold text-xs">
+                                    <i data-lucide="sparkles" class="w-4 h-4"></i>
+                                    <span>Gemini AI Crystal-Clear Explanation</span>
+                                </div>
+                                <p class="text-xs text-gray-200 leading-relaxed">${bm.aiExplanation}</p>
+                            </div>
+                        ` : `
+                            <button onclick="generateAIForBookmark(${bm.id})" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow transition flex items-center space-x-1.5">
+                                <i data-lucide="cpu" class="w-3.5 h-3.5"></i>
+                                <span>Generate AI Explanation for this Moment</span>
+                            </button>
+                        `}
+                    </div>
+                `;
+            });
+            listEl.innerHTML = html;
+            lucide.createIcons();
+        }
+
+        function deleteBookmark(id) {
+            bookmarks = bookmarks.filter(b => b.id !== id);
+            localStorage.setItem('mindstream_bookmarks', JSON.stringify(bookmarks));
+            renderBookmarks();
+            updateBookmarkCount();
+            showToast('Bookmark removed.', 'info');
+        }
+
+        // --- Gemini API Call for Explanations ---
+        async function generateAIForBookmark(id) {
+            const bm = bookmarks.find(b => b.id === id);
+            if (!bm) return;
+
+            showToast('Consulting Gemini AI for explanation...', 'info');
+
+            if (!apiKey) {
+                // Fallback simulation if no API key is provided
+                setTimeout(() => {
+                    bm.aiExplanation = `<strong>Simplified Breakdown:</strong> At timestamp ${bm.timestamp}, the lecturer discussed backpropagation and gradient descent vectors. In plain English, think of this like adjusting the angle of a ball rolling down a hilly landscape until it reaches the lowest valley. Your note ("${bm.note}") highlights confusion around partial derivatives—remember that we isolate one weight while treating all other weights as temporary constants!`;
+                    localStorage.setItem('mindstream_bookmarks', JSON.stringify(bookmarks));
+                    renderBookmarks();
+                    showToast('AI explanation generated (simulation mode).', 'success');
+                }, 1000);
+                return;
+            }
+
+            try {
+                const prompt = `A university student marked a confused moment during a lecture at timestamp ${bm.timestamp}. Their note was: "${bm.note}". Please provide a clear, easy-to-understand explanation, an intuitive analogy, and study notes addressing this confusion point. Keep it concise, professional, and friendly.`;
+                
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+                const payload = {
+                    contents: [{ parts: [{ text: prompt }] }],
+                    systemInstruction: { parts: [{ text: "You are an expert, friendly AI university tutor specialized in simplifying complex technical concepts." }] }
+                };
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+                const candidate = result.candidates?.[0];
+                if (candidate && candidate.content?.parts?.[0]?.text) {
+                    bm.aiExplanation = candidate.content.parts[0].text;
+                    localStorage.setItem('mindstream_bookmarks', JSON.stringify(bookmarks));
+                    renderBookmarks();
+                    showToast('Gemini AI explanation generated successfully!', 'success');
+                } else {
+                    throw new Error('Unexpected API response structure.');
+                }
+            } catch (err) {
+                console.error(err);
+                showToast('API Error: Falling back to smart offline explanation.', 'error');
+                bm.aiExplanation = `<strong>AI Explanation:</strong> At ${bm.timestamp}, the core principle involves derivative chain rules in computational graphs. Analogy: Think of it like passing a correction signal backwards through a team of workers where each worker adjusts their output proportionally.`;
+                localStorage.setItem('mindstream_bookmarks', JSON.stringify(bookmarks));
+                renderBookmarks();
+            }
+        }
+
+        async function generateAllAIExplanations() {
+            if (bookmarks.length === 0) {
+                showToast('No bookmarks to explain.', 'info');
+                return;
+            }
+            for (let bm of bookmarks) {
+                if (!bm.aiExplanation) {
+                    await generateAIForBookmark(bm.id);
+                }
+            }
+        }
+
+        // --- Heatmap & Lecturer Bookmarks ---
+        function renderHeatmapBars() {
+            const container = document.getElementById('heatmap-timeline-bars');
+            let html = '';
+            // Generate 30 timeline segments
+            for (let i = 1; i <= 30; i++) {
+                // Determine height based on simulated student confusion + actual bookmarks
+                let height = Math.floor(Math.random() * 40) + 15;
+                let colorClass = 'bg-indigo-500/40 hover:bg-indigo-500';
+                
+                // Add spikes at specific simulated intervals (e.g. segments 12 and 18)
+                if (i === 12 || i === 18 || i === 24) {
+                    height = 85;
+                    colorClass = 'bg-red-500 hover:bg-red-400';
+                } else if (i === 7 || i === 15) {
+                    height = 60;
+                    colorClass = 'bg-amber-500 hover:bg-amber-400';
+                }
+
+                html += `
+                    <div onclick="selectHeatmapSegment(${i})" class="w-full rounded-t transition cursor-pointer ${colorClass}" style="height: ${height}%;" title="Timeline segment ${i}:00"></div>
+                `;
+            }
+            container.innerHTML = html;
+        }
+
+        function selectHeatmapSegment(seg) {
+            const info = document.getElementById('heatmap-selected-info');
+            info.textContent = `Selected Minute 00:${seg < 10 ? '0'+seg : seg}:00 • 14 students flagged confusion (Backpropagation derivatives)`;
+            showToast(`Loaded lecture context for minute ${seg}:00`, 'info');
+        }
+
+        function renderLecturerBookmarks() {
+            const listEl = document.getElementById('lecturer-bookmarks-list');
+            if (bookmarks.length === 0) {
+                listEl.innerHTML = `<div class="text-center py-8 text-gray-500 text-xs">No student flags recorded yet.</div>`;
+                return;
+            }
+
+            let html = '';
+            bookmarks.forEach(bm => {
+                html += `
+                    <div class="p-3.5 rounded-xl bg-dark-900/60 border border-gray-800 space-y-1.5">
+                        <div class="flex justify-between items-center">
+                            <span class="text-amber-400 font-mono text-xs font-semibold">${bm.timestamp}</span>
+                            <span class="text-[10px] text-gray-400">Anonymous Student</span>
+                        </div>
+                        <p class="text-xs text-gray-200"><strong>Note:</strong> ${bm.note}</p>
+                    </div>
+                `;
+            });
+            listEl.innerHTML = html;
+        }
+
+        // --- Live Quiz System ---
+        function triggerSampleQuiz() {
+            activeQuiz = sampleQuizzes[Math.floor(Math.random() * sampleQuizzes.length)];
+            selectedQuizOption = null;
+            quizTimeRemaining = 30;
+
+            document.getElementById('quiz-title').textContent = activeQuiz.title;
+            document.getElementById('quiz-question').textContent = activeQuiz.question;
+            
+            const optionsEl = document.getElementById('quiz-options');
+            let html = '';
+            activeQuiz.options.forEach((opt, idx) => {
+                html += `
+                    <div onclick="selectQuizOption(${idx})" id="quiz-opt-${idx}" class="p-3 rounded-xl bg-dark-800/80 border border-gray-700/60 hover:border-indigo-500 text-xs text-gray-200 cursor-pointer transition flex items-center space-x-3">
+                        <span class="w-6 h-6 rounded-lg bg-dark-700 flex items-center justify-center font-mono text-xs text-indigo-400">${String.fromCharCode(65 + idx)}</span>
+                        <span>${opt}</span>
+                    </div>
+                `;
+            });
+            optionsEl.innerHTML = html;
+
+            document.getElementById('quiz-feedback').classList.add('hidden');
+            document.getElementById('quiz-submit-btn').disabled = true;
+            document.getElementById('quiz-modal').classList.remove('hidden');
+
+            if (quizTimerInterval) clearInterval(quizTimerInterval);
+            quizTimerInterval = setInterval(() => {
+                quizTimeRemaining--;
+                document.getElementById('quiz-timer').textContent = `${quizTimeRemaining}s`;
+                if (quizTimeRemaining <= 0) {
+                    clearInterval(quizTimerInterval);
+                    closeQuizModal();
+                    showToast('Quiz closed. Time expired.', 'info');
+                }
+            }, 1000);
+        }
+
+        function selectQuizOption(idx) {
+            selectedQuizOption = idx;
+            for (let i = 0; i < 4; i++) {
+                const el = document.getElementById(`quiz-opt-${i}`);
+                if (el) {
+                    if (i === idx) {
+                        el.className = "p-3 rounded-xl bg-indigo-600/30 border border-indigo-500 text-xs text-white cursor-pointer transition flex items-center space-x-3 shadow-lg";
+                    } else {
+                        el.className = "p-3 rounded-xl bg-dark-800/80 border border-gray-700/60 hover:border-indigo-500 text-xs text-gray-200 cursor-pointer transition flex items-center space-x-3";
+                    }
+                }
+            }
+            document.getElementById('quiz-submit-btn').disabled = false;
+        }
+
+        function submitQuizAnswer() {
+            if (selectedQuizOption === null) return;
+            clearInterval(quizTimerInterval);
+
+            const feedbackEl = document.getElementById('quiz-feedback');
+            feedbackEl.classList.remove('hidden');
+
+            if (selectedQuizOption === activeQuiz.correct) {
+                feedbackEl.className = "mb-4 p-3 rounded-xl text-xs font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30";
+                feedbackEl.textContent = "Correct! Excellent comprehension.";
+                showToast('Quiz answered correctly! +10 Engagement XP', 'success');
+            } else {
+                feedbackEl.className = "mb-4 p-3 rounded-xl text-xs font-medium bg-red-500/20 text-red-300 border border-red-500/30";
+                feedbackEl.textContent = `Incorrect. The correct answer was: ${activeQuiz.options[activeQuiz.correct]}`;
+                showToast('Incorrect answer recorded.', 'error');
+            }
+
+            document.getElementById('quiz-submit-btn').disabled = true;
+            setTimeout(() => {
+                document.getElementById('quiz-modal').classList.add('hidden');
+            }, 2500);
+        }
+
+        function closeQuizModal() {
+            if (quizTimerInterval) clearInterval(quizTimerInterval);
+            document.getElementById('quiz-modal').classList.add('hidden');
+        }
+
+        // --- Audio Stream Simulator Toggle ---
+        function toggleAudioStream() {
+            isAudioPlaying = !isAudioPlaying;
+            const btn = document.getElementById('audio-play-btn');
+            const statusText = document.getElementById('audio-status-text');
+
+            if (isAudioPlaying) {
+                btn.innerHTML = '<i data-lucide="pause" class="w-4 h-4"></i>';
+                statusText.textContent = "Streaming Audio (Live)";
+                showToast('Audio stream resumed.', 'info');
+            } else {
+                btn.innerHTML = '<i data-lucide="play" class="w-4 h-4"></i>';
+                statusText.textContent = "Audio Stream Paused";
+                showToast('Audio stream paused.', 'info');
+            }
+            lucide.createIcons();
+        }
+
+        function saveScratchpad() {
+            const val = document.getElementById('student-scratchpad').value;
+            localStorage.setItem('mindstream_scratchpad', val);
+            showToast('Notes saved successfully!', 'success');
+        }
+
+        // --- Toast Notification System ---
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            
+            let bgClass = 'bg-dark-800 border-indigo-500/30 text-white';
+            let iconName = 'info';
+            let iconColor = 'text-indigo-400';
+
+            if (type === 'success') {
+                bgClass = 'bg-dark-800 border-emerald-500/30 text-white';
+                iconName = 'check-circle-2';
+                iconColor = 'text-emerald-400';
+            } else if (type === 'error') {
+                bgClass = 'bg-dark-800 border-red-500/30 text-white';
+                iconName = 'alert-triangle';
+                iconColor = 'text-red-400';
+            }
+
+            toast.className = `glass pointer-events-auto flex items-center space-x-3 px-4 py-3 rounded-xl border shadow-xl transition transform translate-y-2 opacity-0 ${bgClass}`;
+            toast.innerHTML = `
+                <i data-lucide="${iconName}" class="w-5 h-5 ${iconColor} flex-shrink-0"></i>
+                <span class="text-xs font-medium">${message}</span>
+            `;
+
+            container.appendChild(toast);
+            lucide.createIcons();
+
+            setTimeout(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            }, 10);
+
+            setTimeout(() => {
+                toast.classList.add('translate-y-2', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
+        }
+    </script>
+</body>
+</html>
